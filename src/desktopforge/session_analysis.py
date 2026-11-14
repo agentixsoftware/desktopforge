@@ -90,7 +90,16 @@ def inspect_processes(proc_root: Path = Path("/proc")) -> list[dict[str, object]
         shells = _markers(executable, SHELL_MARKERS)
         compositors = _markers(executable, COMPOSITOR_MARKERS)
         if shells or compositors:
+            try:
+                cgroup = (pid / "cgroup").read_text(encoding="utf-8")[:4096].strip()
+            except (OSError, UnicodeError):
+                cgroup = None
+            try:
+                owner_uid = pid.stat().st_uid
+            except OSError:
+                owner_uid = None
             result.append({"pid": int(pid.name), "executable": executable,
+                           "uid": owner_uid, "cgroup": cgroup,
                            "shell_candidates": shells, "compositor_candidates": compositors})
     return sorted(result, key=lambda entry: entry["pid"])
 
@@ -108,6 +117,15 @@ def session_analysis(sessions: list[dict[str, str]],
     explicit_shells = sorted(set(sum((_markers(value, SHELL_MARKERS) for value in current), [])))
     running_shells = sorted(set(name for proc in processes for name in proc["shell_candidates"]))
     candidates = sorted(set(explicit_shells + running_shells))
+    own_uid = os.getuid()
+    user_services = sorted({
+        name
+        for proc in processes
+        if proc.get("uid") == own_uid
+        and "/user@" in (proc.get("cgroup") or "")
+        and ".service" in (proc.get("cgroup") or "")
+        for name in proc["shell_candidates"]
+    })
     if len(explicit_shells) == 1:
         active = {"name": explicit_shells[0], "confidence": "environment_hint",
                   "reason": "Session environment names the shell; not runtime verification"}
@@ -121,11 +139,13 @@ def session_analysis(sessions: list[dict[str, str]],
         "registered_sessions": described,
         "matching_session_hints": [entry["id"] for entry in matched],
         "running_shell_process_candidates": running_shells,
+        "current_user_service_shell_candidates": user_services,
         "shell_candidates": candidates,
         "active_shell": active,
         "limitations": [
             "Registered sessions are not evidence of the currently running shell.",
             "A process may belong to another user or another login session.",
+            "A user service can outlive a login session; its cgroup alone does not prove active-shell ownership.",
             "Exec entries are parsed as untrusted text, never executed.",
         ],
     }
