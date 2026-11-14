@@ -47,3 +47,11 @@ The synthetic fixture models the **observed session names**, not their actual la
 **Interpretation:** Ryoku is demonstrably active as a systemd user service and matches the detected process. The service belongs to a Ryoku-specific target, but the available evidence does not yet prove exclusive ownership by the current graphical login session. The detector now reports current-user service evidence separately rather than automatically claiming an active shell.
 
 **Next validation:** Re-run tests and detector on the reference laptop after pulling the latest commits. Explore read-only systemd unit relationships and session association before promoting service evidence to a confirmed active-shell label.
+
+## Milestone 1 continuation (pending laptop validation)
+
+A conservative shell correlation now checks four signals: the current desktop name, the current user's compositor systemd service, the current user's shell systemd service, and a registered session with matching compositor/shell labels. Matching signals produce `shell_correlation.confidence=corroborated_hints`, **not** a definitive `active_shell` assignment.
+
+The read-only `list` and `plan` commands now support research targets. No installation recipe is validated, and every preview is explicitly blocked from execution. Fedora 45 + Niri + Ryoku is included as a reference combination, not an installation support claim.
+
+After pulling, run `PYTHONPATH=src python3 -m pytest -q`, `PYTHONPATH=src python3 -m desktopforge detect --json`, and `PYTHONPATH=src python3 -m desktopforge plan --compositor niri --shell ryoku --json`.
