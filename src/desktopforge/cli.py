@@ -7,6 +7,7 @@ import json
 import sys
 
 from .detection import detect_system
+from .planner import list_targets, plan
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -14,7 +15,33 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     detect = sub.add_parser("detect", help="Show read-only system inventory")
     detect.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    targets = sub.add_parser("list", help="List research targets (not installable)")
+    targets.add_argument("--json", action="store_true")
+    preview = sub.add_parser("plan", help="Preview a non-executable installation plan")
+    preview.add_argument("--compositor", required=True)
+    preview.add_argument("--shell", required=True)
+    preview.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.command == "list":
+        result = list_targets(detect_system())
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            for target in result["targets"]:
+                print(f"{target['compositor']} + {target['shell']}: {target['status']} (not installable)")
+            print(result["notice"])
+        return 0
+    if args.command == "plan":
+        result = plan(detect_system(), args.compositor.lower(), args.shell.lower())
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(f"Target: {result['target']['compositor']} + {result['target']['shell']}")
+            print("Status: BLOCKED — preview only; no changes made")
+            print("Evidence:", json.dumps(result["evidence"], sort_keys=True))
+            for blocker in result["blockers"]:
+                print(f"Blocker: {blocker}")
+        return 0
     if args.command == "detect":
         result = detect_system()
         if args.json:
