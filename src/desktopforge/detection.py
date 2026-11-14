@@ -79,7 +79,7 @@ def _detect_display_manager(root: Path) -> dict[str, Any]:
         return {"name": None, "source": None, "confidence": "unknown"}
     basename = Path(target).name.lower()
     for marker in ("gdm", "sddm", "lightdm", "ly"):
-        if marker in basename:
+        if basename == f"{marker}.service":
             return {"name": marker, "source": str(service), "confidence": "configured"}
     return {"name": basename.removesuffix(".service"), "source": str(service), "confidence": "configured"}
 

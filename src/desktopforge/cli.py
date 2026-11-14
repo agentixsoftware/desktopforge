@@ -7,6 +7,7 @@ import json
 import sys
 
 from .detection import detect_system
+from .planning import COMPOSITORS, SHELLS, build_plan, compatibility_catalog
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -14,7 +15,33 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     detect = sub.add_parser("detect", help="Show read-only system inventory")
     detect.add_argument("--json", action="store_true", help="Print machine-readable JSON")
+    catalog = sub.add_parser("list", help="List unverified target combinations")
+    catalog.add_argument("--json", action="store_true")
+    plan = sub.add_parser("plan", help="Preview a blocked, read-only installation plan")
+    plan.add_argument("--compositor", choices=COMPOSITORS, required=True)
+    plan.add_argument("--shell", choices=SHELLS, required=True)
+    plan.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.command == "list":
+        entries = compatibility_catalog()
+        if args.json:
+            print(json.dumps(entries, indent=2, sort_keys=True))
+        else:
+            for entry in entries:
+                print("{distribution}: {compositor} + {shell} ({status})".format(**entry))
+        return 0
+    if args.command == "plan":
+        result = build_plan(detect_system(), args.compositor, args.shell)
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(f"Read-only preview: {args.compositor} + {args.shell}")
+            print(f"Compatibility: {result['compatibility']}; plan: blocked")
+            print(f"Session ID preview: {result['session_id_preview']}")
+            for blocker in result["blockers"]:
+                print(f"Blocked: {blocker}")
+            print("No operations proposed. Preserve existing sessions, display manager and user configuration.")
+        return 1
     if args.command == "detect":
         result = detect_system()
         if args.json:

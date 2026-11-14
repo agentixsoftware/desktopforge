@@ -42,3 +42,11 @@ def test_missing_data_is_graceful(tmp_path: Path):
     assert result["distribution"]["id"] is None
     assert result["display_manager"]["confidence"] == "unknown"
     assert result["sessions"]["wayland"] == []
+
+
+def test_unrelated_display_manager_name_is_not_classified(tmp_path):
+    directory = tmp_path / 'etc/systemd/system'
+    directory.mkdir(parents=True)
+    (directory / 'display-manager.service').symlink_to('/usr/lib/systemd/system/not-sddm.service')
+    result = detect_system(root=tmp_path, environ={}, which=lambda _: None)
+    assert result['display_manager']['name'] == 'not-sddm'

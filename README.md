@@ -29,7 +29,7 @@ Python + PySide6 GUI, Python CLI/core, YAML playbooks, a polkit-authorized nativ
 
 ## Current prototype: multi-shell detection
 
-Run `PYTHONPATH=src python3 -m desktopforge detect` (or add `--json`). The read-only inventory now reports registered shell candidates (Ryoku, Noctalia, DMS), process evidence, and active-shell confidence. It does not assume that a registered shell is installed or running. See [Fedora 45 multi-shell reference](docs/REFERENCE_FEDORA45_MULTISHELL.md). The implementation has not yet been validated on the reference laptop.
+Run `PYTHONPATH=src python3 -m desktopforge detect` (or add `--json`). The read-only inventory now reports registered shell candidates (Ryoku, Noctalia, DMS), process evidence, and active-shell confidence. It does not assume that a registered shell is installed or running. See [Fedora 45 multi-shell reference](docs/REFERENCE_FEDORA45_MULTISHELL.md). Read-only inspection confirms the reference distribution, configured SDDM, four session definitions and executable availability. Active-shell validation remains incomplete because the development environment exposes no graphical-session variables or matching process evidence.
 
 ## Project documents
 
@@ -41,3 +41,12 @@ Run `PYTHONPATH=src python3 -m desktopforge detect` (or add `--json`). The read-
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE). Third-party dependencies and recipes remain subject to their respective licenses.
+
+## Read-only catalog and preview
+
+```bash
+PYTHONPATH=src python3 -m desktopforge list
+PYTHONPATH=src python3 -m desktopforge plan --compositor niri --shell ryoku
+```
+
+Both commands accept `--json`. The catalog describes target scope, including experimental Ryoku combinations; all entries are unverified for every version. Plans are deterministic for identical inventory inputs, preserve existing sessions and configuration, and contain no executable operations. A blocked plan exits with status 1; successful inventory/catalog commands exit with status 0. Session IDs are previews, not filesystem reservations.

@@ -47,3 +47,20 @@ The synthetic fixture models the **observed session names**, not their actual la
 **Interpretation:** Ryoku is demonstrably active as a systemd user service and matches the detected process. The service belongs to a Ryoku-specific target, but the available evidence does not yet prove exclusive ownership by the current graphical login session. The detector now reports current-user service evidence separately rather than automatically claiming an active shell.
 
 **Next validation:** Re-run tests and detector on the reference laptop after pulling the latest commits. Explore read-only systemd unit relationships and session association before promoting service evidence to a confirmed active-shell label.
+
+## Development-environment inspection (2026-11-14)
+
+The local checkout passed all 9 existing tests before changes and 16 tests after
+catalog/planner and detection regressions were added. Read-only detection observed:
+
+- Fedora Linux 45 (COSMIC), with SDDM configured via display-manager.service.
+- COSMIC and Niri (DMS), Niri (Noctalia), Niri (Ryoku) session entries.
+- The Ryoku entry has ID `niri` and `Exec=niri-session`; its name supplies the shell hint.
+- Executables for Niri, DMS, Noctalia and Ryoku on PATH.
+- No graphical-session environment variables or matching process evidence visible
+  to this execution environment. Active shell correctly remains unknown.
+
+This validates static inventory only; it does not independently reproduce the
+previous live Ryoku service findings or establish installation compatibility.
+Fetching current main failed because github.com could not be resolved. The local
+baseline was commit 2675f1d; upstream freshness could not be established.

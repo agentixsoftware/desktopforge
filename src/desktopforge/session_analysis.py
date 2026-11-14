@@ -77,7 +77,8 @@ def inspect_processes(proc_root: Path = Path("/proc")) -> list[dict[str, object]
         if not pid.name.isdecimal():
             continue
         try:
-            raw = (pid / "cmdline").read_bytes()[:8192]
+            with (pid / "cmdline").open("rb") as stream:
+                raw = stream.read(8192)
         except OSError:
             continue
         if not raw:
@@ -87,8 +88,8 @@ def inspect_processes(proc_root: Path = Path("/proc")) -> list[dict[str, object]
             continue
         executable = Path(argv[0]).name.lower()
         # Match executable name, not arbitrary command-line arguments.
-        shells = _markers(executable, SHELL_MARKERS)
-        compositors = _markers(executable, COMPOSITOR_MARKERS)
+        shells = [name for name, binaries in SHELL_EXECUTABLES.items() if executable in binaries]
+        compositors = [name for name in COMPOSITOR_MARKERS if executable == name]
         if shells or compositors:
             try:
                 cgroup = (pid / "cgroup").read_text(encoding="utf-8")[:4096].strip()
