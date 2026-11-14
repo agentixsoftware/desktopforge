@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 import re
 import shutil
+
+from .session_analysis import SHELL_EXECUTABLES, inspect_processes, session_analysis
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -104,13 +106,16 @@ def detect_system(
         name: {"executable": executable, "found": bool(lookup(executable))}
         for name, executable in compositor_bins.items()
     }
-    shell_bins = {"noctalia": "noctalia-shell", "dms": "dms"}
+    shell_bins = SHELL_EXECUTABLES
     shell_evidence = {
-        name: {"executable": executable, "found": bool(lookup(executable))}
-        for name, executable in shell_bins.items()
+        name: {"executables_checked": list(executables), "found": any(bool(lookup(exe)) for exe in executables)}
+        for name, executables in shell_bins.items()
     }
+    wayland_sessions = _session_entries(root / "usr/share/wayland-sessions")
+    process_evidence = inspect_processes(root / "proc") if root == Path("/") else []
+    analysis = session_analysis(wayland_sessions, env, process_evidence)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "distribution": {
             "id": distro.get("ID"),
             "name": distro.get("PRETTY_NAME") or distro.get("NAME"),
@@ -125,11 +130,13 @@ def detect_system(
             "session_desktop": env.get("XDG_SESSION_DESKTOP"),
         },
         "sessions": {
-            "wayland": _session_entries(root / "usr/share/wayland-sessions"),
+            "wayland": wayland_sessions,
             "x11": _session_entries(root / "usr/share/xsessions"),
         },
         "compositor_executables": compositor_evidence,
         "shell_executables": shell_evidence,
+        "session_analysis": analysis,
+        "process_evidence": process_evidence,
         "limitations": [
             "Executable presence does not prove a functional installation.",
             "Display manager evidence indicates configuration, not necessarily the running service.",
