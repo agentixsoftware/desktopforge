@@ -38,10 +38,8 @@ def main(argv: list[str] | None = None) -> int:
             analysis = result["session_analysis"]
             active = analysis["active_shell"]
             print(f"Active shell: {active['name'] or 'unknown'} ({active['confidence']})")
-            print(f"Registered shell candidates: {', '.join(sorted(set(
-                shell for session in analysis['registered_sessions']
-                for shell in session['shell_candidates']
-            ))) or 'none found'}")
+            registered_shells = sorted({shell for session in analysis["registered_sessions"] for shell in session["shell_candidates"]})
+            print(f"Registered shell candidates: {', '.join(registered_shells) or 'none found'}")
             print("Note: Detection is evidence only; compatibility is not yet verified.")
         return 0
     return 2
