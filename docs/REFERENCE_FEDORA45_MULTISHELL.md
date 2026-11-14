@@ -36,3 +36,14 @@ The command is read-only. Its output will allow us to replace synthetic launch e
 ## Test status
 
 The synthetic fixture models the **observed session names**, not their actual launch commands. It asserts that DMS, Noctalia and Ryoku are discoverable as *registered candidates* while the active shell remains unknown absent stronger evidence. Live tests on this laptop remain pending.
+
+## Confirmed follow-up diagnostics
+
+- `python3 -m pytest -q`: **7 passed** on the reference laptop (before the user-service changes).
+- `loginctl show-session "$XDG_SESSION_ID"`: session ID `66`, user `ryoku`, desktop `niri`, type `wayland`, scope `session-66.scope`, leader PID `365229`.
+- `/proc/367408/cgroup`: `0::/user.slice/user-1001.slice/user@1001.service/session.slice/ryoku-shell.service`.
+- `systemctl --user show ryoku-shell.service`: `ActiveState=active`, `SubState=running`, `MainPID=367408`, `PartOf=ryoku-session.target`, `BindsTo=` (empty).
+
+**Interpretation:** Ryoku is demonstrably active as a systemd user service and matches the detected process. The service belongs to a Ryoku-specific target, but the available evidence does not yet prove exclusive ownership by the current graphical login session. The detector now reports current-user service evidence separately rather than automatically claiming an active shell.
+
+**Next validation:** Re-run tests and detector on the reference laptop after pulling the latest commits. Explore read-only systemd unit relationships and session association before promoting service evidence to a confirmed active-shell label.
