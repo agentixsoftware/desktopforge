@@ -27,6 +27,10 @@ DesktopForge is an open-source, beginner-friendly tool for adding compatible Way
 
 Python + PySide6 GUI, Python CLI/core, YAML playbooks, a polkit-authorized native helper, and VM-based compatibility testing. A portable AppImage for the unprivileged GUI will be evaluated after native packaging.
 
+## Current prototype: multi-shell detection
+
+Run `PYTHONPATH=src python3 -m desktopforge detect` (or add `--json`). The read-only inventory now reports registered shell candidates (Ryoku, Noctalia, DMS), process evidence, and active-shell confidence. It does not assume that a registered shell is installed or running. See [Fedora 45 multi-shell reference](docs/REFERENCE_FEDORA45_MULTISHELL.md). The implementation has not yet been validated on the reference laptop.
+
 ## Project documents
 
 - [Product requirements](PRD.md)
