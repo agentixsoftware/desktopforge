@@ -243,3 +243,57 @@ def test_malformed_launch_state_is_ignored(tmp_path):
     (directory / 'c.json').symlink_to(directory / 'a.json')
     assert install_records.read_launches(directory) == {}
     assert install_records.launch_state_directory({'HOME': 'relative'}) is None
+
+
+# ---- every recorded package is re-verified, not just the tracked ones ----------------------
+
+import subprocess  # noqa: E402
+
+
+def rpm(lines, code=None):
+    text = '\n'.join(lines) + '\n'
+    missing = sum(l.startswith('package ') for l in lines)
+    return lambda argv, **kw: subprocess.CompletedProcess(argv, missing if code is None else code, text, '')
+
+
+ALL_PRESENT = ['niri\t0:26.04-2.fc45\tx86_64', 'noctalia\t0:5.5.0-3.fc45\tx86_64']
+
+
+def deps_record():
+    return make_record(installed=[
+        {'name': 'niri', 'evr': '0:26.04-2.fc45', 'arch': 'x86_64', 'repo': 'fedora', 'installtid': '1', 'key_id': None},
+        {'name': 'libseat', 'evr': '0:0.9.3-2.fc45', 'arch': 'x86_64', 'repo': 'fedora', 'installtid': '1', 'key_id': None}])
+
+
+def test_removed_dependency_marks_installation_modified(tmp_path):
+    root = install_tree(tmp_path, record=deps_record())
+    runner = rpm(ALL_PRESENT + ['package libseat is not installed'])
+    (inst,) = install_records.inspect_installations(root, PACKAGES, runner=runner)['installations']
+    assert inst['status'] == 'modified'
+    assert {p['name']: p['status'] for p in inst['packages']['installed']} == {'libseat': 'missing', 'niri': 'present'}
+
+
+def test_all_dependencies_present_is_intact(tmp_path):
+    root = install_tree(tmp_path, record=deps_record())
+    runner = rpm(ALL_PRESENT + ['libseat\t0:0.9.3-2.fc45\tx86_64'])
+    assert install_records.inspect_installations(root, PACKAGES, runner=runner)['installations'][0]['status'] == 'intact'
+
+
+@pytest.mark.parametrize('runner', [
+    rpm(ALL_PRESENT),                                           # libseat unaccounted for
+    rpm(ALL_PRESENT + ['package libseat is not installed'], code=0),  # status does not match
+    rpm(['garbage line']),
+    lambda argv, **kw: (_ for _ in ()).throw(OSError('no rpm')),
+])
+def test_unclear_package_state_is_unverified_not_intact(tmp_path, runner):
+    root = install_tree(tmp_path, record=deps_record())
+    empty_inventory = {'packages': []}
+    (inst,) = install_records.inspect_installations(root, empty_inventory, runner=runner)['installations']
+    assert inst['status'] == 'unverified'
+
+
+def test_planner_explains_unverified(inventory):
+    inv = with_installation(inventory, 'unverified')
+    inv['desktopforge_installations']['installations'][0]['packages']['installed'][0]['status'] = 'unknown'
+    plan = build_plan(inv, 'niri', 'noctalia')
+    assert plan['status'] == 'blocked' and 'package niri could not be checked' in plan['blockers'][0]

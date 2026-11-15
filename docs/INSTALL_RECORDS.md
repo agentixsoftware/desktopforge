@@ -44,9 +44,14 @@ installations are blocked, naming each problem. A session with the same ID but
 no record is still treated as foreign and gets a new ID. The helper refuses to
 re-apply a recipe with a completed record.
 
-Package status uses the inventory's tracked RPM names; dependencies outside
-that list are recorded but not yet re-verified. Repair, removal and
-`AccountsService` default-session reset are not implemented yet.
+Every recorded package, dependencies included, is re-checked with one read-only
+`rpm -q` (fixed argv, every name accounted for, status equal to the missing
+count). A missing or changed package makes the installation `modified`. If the
+query cannot answer, it is `unverified` and blocked, not `intact`. Verified in
+the guest by force-removing the dependency `tomlplusplus` (`modified`, naming it)
+and reinstalling it (`intact`). Repair is not implemented; removal is described
+in [REMOVAL.md](REMOVAL.md). The `AccountsService` default session is never
+reset (option A).
 
 ## Rendering preflight
 

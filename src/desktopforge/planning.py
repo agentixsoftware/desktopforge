@@ -98,9 +98,12 @@ def build_plan(inventory: dict, compositor: str, shell: str,
             problems += [f"package {p['name']} is {p['status']}" for p in
                          installed["packages"]["installed"] + installed["packages"]["reused"]
                          if p["status"] in ("missing", "changed")]
+            problems += [f"package {p['name']} could not be checked" for p in
+                         installed["packages"]["installed"] + installed["packages"]["reused"]
+                         if p["status"] == "unknown"]
             blockers.insert(0, f"DesktopForge installation {installed['install_id']} of this combination is "
                                f"{installed['status']}: " + "; ".join(problems or ["see its install record"])
-                               + ". Repair and removal are not supported yet.")
+                               + ". Repair is not supported yet; the lab helper can remove it (docs/REMOVAL.md).")
             operations, session_configuration = [], None
     return {
         "schema_version": 2,

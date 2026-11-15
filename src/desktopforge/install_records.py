@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 
 from .helper import records as schema
 
@@ -43,8 +44,49 @@ def file_status(root: Path, path: str, sha256: str) -> str:
     return 'intact' if digest == sha256 else 'modified'
 
 
-def package_status(package_inventory: dict | None, name: str, evr: str | None, arch: str | None) -> str:
-    """Compare against the inventory's tracked RPM evidence; untracked names stay unknown."""
+RPM_QUERY = '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}\t%{ARCH}\n'
+
+
+def query_recorded_packages(names, runner=None) -> dict | None:
+    """name -> set of (evr, arch) currently installed, for every recorded name, or None if unknown.
+
+    Read-only, fixed argv, names already validated by the record schema. Every
+    requested name must be accounted for and rpm's status must equal the number
+    of missing packages; anything else means the answer is unknown.
+    """
+    names = sorted(set(names))
+    if not names:
+        return {}
+    run = runner or subprocess.run
+    try:
+        result = run(['/usr/bin/rpm', '--query', '--noplugins', '--queryformat', RPM_QUERY, '--', *names],
+                     stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, shell=False, cwd='/',
+                     env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin', 'HOME': '/'})
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found, missing = {}, set()
+    for line in result.stdout.splitlines():
+        if line.startswith('package ') and line.endswith(' is not installed'):
+            missing.add(line[len('package '):-len(' is not installed')])
+            continue
+        parts = line.split('\t')
+        if len(parts) != 3:
+            return None
+        found.setdefault(parts[0], set()).add((parts[1], parts[2]))
+    if set(found) | missing != set(names) or set(found) & missing or result.returncode != len(missing):
+        return None
+    return {name: found.get(name, set()) for name in names}
+
+
+def package_status(package_inventory: dict | None, name: str, evr: str | None, arch: str | None,
+                   live: dict | None = None) -> str:
+    """Prefer a direct query of the recorded names; fall back to the inventory's tracked RPMs."""
+    if live is not None and name in live:
+        if not live[name]:
+            return 'missing'
+        if evr is None:
+            return 'present'
+        return 'present' if (evr, arch) in live[name] else 'changed'
     for package in (package_inventory or {}).get('packages', []):
         if package.get('name') != name:
             continue
@@ -60,13 +102,13 @@ def package_status(package_inventory: dict | None, name: str, evr: str | None, a
     return 'unknown'
 
 
-def summarize(record: dict, root: Path, package_inventory: dict | None) -> dict:
+def summarize(record: dict, root: Path, package_inventory: dict | None, live: dict | None = None) -> dict:
     files = [{'path': f['path'], 'role': f['role'], 'status': file_status(root, f['path'], f['sha256'])}
              for f in record['files']]
     installed = [{'name': p['name'], 'evr': p['evr'], 'arch': p['arch'],
-                  'status': package_status(package_inventory, p['name'], p['evr'], p['arch'])}
+                  'status': package_status(package_inventory, p['name'], p['evr'], p['arch'], live)}
                  for p in record['packages']['installed']]
-    reused = [{'name': n, 'status': package_status(package_inventory, n, None, None)}
+    reused = [{'name': n, 'status': package_status(package_inventory, n, None, None, live)}
               for n in record['packages']['reused']]
     if record['state'] != 'completed':
         overall = 'failed'
@@ -75,6 +117,8 @@ def summarize(record: dict, root: Path, package_inventory: dict | None) -> dict:
     elif any(f['status'] == 'modified' for f in files) or any(
             p['status'] in ('missing', 'changed') for p in installed + reused):
         overall = 'modified'
+    elif any(p['status'] == 'unknown' for p in installed + reused):
+        overall = 'unverified'  # files match, but package state could not be established
     else:
         overall = 'intact'
     return {'install_id': record['install_id'], 'recorded_at': record['recorded_at'], 'state': record['state'],
@@ -83,7 +127,8 @@ def summarize(record: dict, root: Path, package_inventory: dict | None) -> dict:
             'packages': {'installed': installed, 'reused': reused}, 'producer': record['producer']}
 
 
-def inspect_installations(root: Path = Path('/'), package_inventory: dict | None = None) -> dict:
+def inspect_installations(root: Path = Path('/'), package_inventory: dict | None = None,
+                          runner=None) -> dict:
     directory = root / schema.RECORDS_DIR.lstrip('/')
     result = {'schema_version': 1, 'directory': schema.RECORDS_DIR, 'status': 'none',
               'installations': [], 'issues': []}
@@ -97,7 +142,7 @@ def inspect_installations(root: Path = Path('/'), package_inventory: dict | None
         return {**result, 'status': 'unavailable',
                 'issues': ['Install record directory is not a root-owned, non-writable directory; ignored.']}
     names = sorted(n for n in os.listdir(directory) if n.endswith('.json'))
-    removals = {}
+    removals, parsed = {}, []
     if len(names) > MAX_RECORDS:
         result['issues'].append(f'Only the first {MAX_RECORDS} install records were read.')
     for name in names[:MAX_RECORDS]:
@@ -123,7 +168,13 @@ def inspect_installations(root: Path = Path('/'), package_inventory: dict | None
         except (OSError, schema.RecordError) as exc:
             result['issues'].append(f'{name}: ignored ({exc})')
             continue
-        result['installations'].append(summarize(record, root, package_inventory))
+        parsed.append(record)
+    live = None
+    if root == Path('/') or runner is not None:
+        names = [p['name'] for r in parsed for p in r['packages']['installed']]
+        names += [n for r in parsed for n in r['packages']['reused']]
+        live = query_recorded_packages(names, runner)
+    result['installations'] = [summarize(r, root, package_inventory, live) for r in parsed]
     for installation in result['installations']:
         history = sorted(removals.get(installation['install_id'], []), key=lambda r: r['recorded_at'])
         if history:
