@@ -93,3 +93,9 @@ fresh config, a private D-Bus session and its own transient user service. Quit
 with Super+Shift+E or Ctrl+C in the launching terminal. It installs nothing and
 does not alter existing desktop config/services. VM-tested production support is
 still pending. See [trial instructions, standalone mode and diagnostics](docs/TRY_LAUNCHER.md).
+
+Inside the nested window, Super+D or Super+Space opens Noctalia's application menu;
+Super+Return opens an available terminal. The trial does not open a DesktopForge
+installer GUI (that milestone is still pending). If there is no shell bar/panel,
+run `PYTHONPATH=src python3 -m desktopforge.session_launcher --diagnose` from
+another terminal in the same desktop account while the trial is open.

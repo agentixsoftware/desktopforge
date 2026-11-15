@@ -51,6 +51,8 @@ xwayland-satellite {{ off; }}
 binds {{
     Mod+Shift+E {{ quit; }}
     Mod+Q {{ close-window; }}
+    Mod+D {{ spawn "/usr/bin/noctalia" "msg" "panel-toggle" "launcher"; }}
+    Mod+Space {{ spawn "/usr/bin/noctalia" "msg" "panel-toggle" "launcher"; }}
     Mod+Left {{ focus-column-left; }}
     Mod+Right {{ focus-column-right; }}
     Mod+Up {{ focus-window-up; }}
@@ -287,7 +289,8 @@ def run_session(env: Mapping[str, str], *, nested: bool, runner: Callable = run_
                         raise LauncherError('Noctalia exited or is outside the owned session; stopping this session.')
                     if not ready:
                         ready = True
-                        print('Noctalia initialized. Quit using Super+Shift+E, or press Ctrl+C in this terminal.')
+                        print('Noctalia initialized. Super+D: applications; Super+Return: terminal (if available); Super+Shift+E: quit.')
+                        print('This opens a desktop trial. DesktopForge does not yet have an installer GUI.')
                 if not ready and clock() >= deadline:
                     raise LauncherError('Timed out waiting for Noctalia initialization.')
                 sleep(.2)
@@ -309,18 +312,108 @@ def _write_new(path: Path, content: str) -> None:
         os.fsync(stream.fileno())
 
 
+
+def _diagnostic_text(directory_fd: int, relative: str, *, tail: bool = False) -> str:
+    """Read fixed relative diagnostic paths without following any component links."""
+    parts = Path(relative).parts
+    if Path(relative).is_absolute() or '..' in parts:
+        raise LauncherError('Invalid diagnostic path')
+    current = os.dup(directory_fd)
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
+            os.close(current)
+            current = child
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=current)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+                raise LauncherError('Diagnostic file is not an owned regular file')
+            limit = 16384 if tail else 4096
+            if not tail and info.st_size > limit:
+                raise LauncherError('Diagnostic record is unexpectedly large')
+            if tail:
+                os.lseek(fd, max(0, info.st_size - limit), os.SEEK_SET)
+            text = os.read(fd, limit).decode('utf-8', errors='replace')
+            return '\n'.join(text.splitlines()[-40:]) if tail else text
+        finally:
+            os.close(fd)
+    finally:
+        os.close(current)
+
+
+def diagnose_session(env: Mapping[str, str], *, runner: Callable = run_command) -> dict:
+    """Read this account's attempt records and logs. No start, stop or writes."""
+    result = {'status': 'unavailable', 'uid': os.getuid(), 'unit': None,
+              'notice': 'Read-only diagnostics for this execution account; no other user is inspected.'}
+    runtime = env.get('XDG_RUNTIME_DIR', '')
+    if not runtime or not Path(runtime).is_absolute():
+        return {**result, 'reason': 'Run diagnostics in the same desktop-account terminal used to launch.'}
+    try:
+        directory = _open_directory(Path(runtime) / 'desktopforge')
+    except (OSError, LauncherError) as exc:
+        return {**result, 'reason': f'Runtime namespace is unavailable: {exc}'}
+    try:
+        record = json.loads(_diagnostic_text(directory, 'attempt.json'))
+        token = record.get('attempt_id') if isinstance(record, dict) else None
+        if (not isinstance(token, str) or not re.fullmatch('[0-9a-f]{32}', token)
+                or record.get('session_id') != SESSION_ID or record.get('schema_version') != 1):
+            raise LauncherError('Unrecognized attempt record')
+        unit = TransientSession(token, runner=runner)
+        result.update(status='observed', unit=unit.unit)
+        try:
+            state = unit.observe()
+            result['service'] = {key: state.get(key) for key in
+                ('LoadState', 'ActiveState', 'SubState', 'MainPID', 'ExecMainStatus', 'ControlGroup')}
+        except (LauncherError, OSError, subprocess.SubprocessError) as exc:
+            result['service_error'] = str(exc)
+        profiles = []
+        for name in sorted(os.listdir(directory)):
+            if not re.fullmatch(f'launch-{token}-[A-Za-z0-9_-]+', name):
+                continue
+            profile = {'directory': name}
+            for relative, field, tail in (
+                ('shell.json', 'shell_record', False),
+                ('cache/noctalia/noctalia.log', 'noctalia_log', True)):
+                try:
+                    profile[field] = _diagnostic_text(directory, name + '/' + relative, tail=tail)
+                except (OSError, LauncherError) as exc:
+                    profile[field + '_error'] = str(exc)
+            profiles.append(profile)
+        result['profiles'] = profiles
+        try:
+            journal = runner(['/usr/bin/journalctl', '--user', '-u', unit.unit, '-b',
+                              '--no-pager', '-n', '40', '--output=cat'])
+            result['journal'] = (journal.stdout if journal.returncode == 0 else journal.stderr)[-16384:]
+        except (OSError, subprocess.SubprocessError) as exc:
+            result['journal_error'] = str(exc)
+        return result
+    except (OSError, LauncherError, ValueError) as exc:
+        return {**result, 'reason': f'No readable current attempt: {exc}'}
+    finally:
+        os.close(directory)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog='desktopforge-session', description='Experimental isolated Niri + Noctalia launcher')
-    modes = parser.add_mutually_exclusive_group(required=True)
+    modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--nested', action='store_true', help='Open a nested window inside the current Wayland session')
     modes.add_argument('--standalone', action='store_true', help='Start from a fresh local TTY login (test VM recommended)')
+    parser.add_argument('--diagnose', action='store_true', help='Read the current attempt and logs without changing the session')
     parser.add_argument('--check', action='store_true', help='Check prerequisites without starting or writing anything')
     parser.add_argument('--json', action='store_true', help='JSON output for --check')
     args = parser.parse_args(argv)
-    if args.json and not args.check:
-        parser.error('--json requires --check')
+    if args.diagnose and (args.nested or args.standalone or args.check):
+        parser.error('--diagnose cannot be combined with a launch mode or --check')
+    if not args.diagnose and not (args.nested or args.standalone):
+        parser.error('Choose --nested, --standalone, or --diagnose')
+    if args.json and not (args.check or args.diagnose):
+        parser.error('--json requires --check or --diagnose')
     try:
         env = dict(os.environ)
+        if args.diagnose:
+            print(json.dumps(diagnose_session(env), sort_keys=True, indent=2))
+            return 0
         result = check_environment(env, nested=args.nested)
         # Parser-only validation uses an anonymous sealed memory file, not a desktop process.
         if not result['blockers']:

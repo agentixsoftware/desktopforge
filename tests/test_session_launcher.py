@@ -395,3 +395,63 @@ def test_trial_skips_first_run_setup_without_touching_normal_profile(env, tmp_pa
     assert 'setup_wizard_enabled = false' in observed[0]
     assert 'telemetry_enabled = false' in observed[0]
     assert normal.read_text() == '[shell]\nsetup_wizard_enabled = true\n'
+
+
+def test_generated_config_binds_native_noctalia_app_launcher():
+    text = config_text(Path('/tmp/fixture'), TOKEN)
+    assert 'Mod+D { spawn "/usr/bin/noctalia" "msg" "panel-toggle" "launcher"; }' in text
+    assert 'Mod+Space { spawn "/usr/bin/noctalia" "msg" "panel-toggle" "launcher"; }' in text
+    assert 'spawn-sh' not in text
+
+
+def test_diagnostics_read_only_captures_own_attempt_and_logs(env, tmp_path):
+    from desktopforge.launcher_runtime import SessionLease
+    from desktopforge.session_launcher import diagnose_session
+    with SessionLease(tmp_path, 'desktopforge-niri-noctalia') as lease:
+        profile = tmp_path / 'desktopforge' / ('launch-' + lease.attempt_id + '-fixture')
+        (profile / 'cache/noctalia').mkdir(parents=True)
+        (profile / 'shell.json').write_text(json.dumps({'token': lease.attempt_id, 'ready': True, 'exit_code': 0}))
+        (profile / 'cache/noctalia/noctalia.log').write_text('fixture graphics initialization error')
+        marker = tmp_path / 'desktopforge/attempt.json'
+        before = marker.read_bytes()
+        calls = []
+        def readonly(argv, **kwargs):
+            calls.append(argv)
+            assert argv[0] in ('/usr/bin/systemctl', '/usr/bin/journalctl')
+            assert 'start' not in argv and 'stop' not in argv
+            return reply('LoadState=not-found\n') if 'show' in argv else reply('fixture journal')
+        result = diagnose_session(env, runner=readonly)
+        assert result['status'] == 'observed'
+        assert result['unit'] == f'desktopforge-{lease.attempt_id}.service'
+        assert result['profiles'][0]['noctalia_log'] == 'fixture graphics initialization error'
+        assert result['journal'] == 'fixture journal'
+        assert marker.read_bytes() == before
+        lease.clean_after_verified_shutdown()
+
+
+def test_diagnostics_does_not_borrow_another_account_context():
+    from desktopforge.session_launcher import diagnose_session
+    assert diagnose_session({})['status'] == 'unavailable'
+
+
+def test_diagnostic_logs_do_not_follow_symlinks(env, tmp_path):
+    from desktopforge.launcher_runtime import SessionLease
+    from desktopforge.session_launcher import diagnose_session
+    secret = tmp_path / 'not-a-log'
+    secret.write_text('outside-file-must-not-be-read')
+    with SessionLease(tmp_path, 'desktopforge-niri-noctalia') as lease:
+        profile = tmp_path / 'desktopforge' / ('launch-' + lease.attempt_id + '-fixture')
+        profile.mkdir()
+        (profile / 'cache').symlink_to(tmp_path, target_is_directory=True)
+        (profile / 'shell.json').symlink_to(secret)
+        result = diagnose_session(env, runner=lambda *args, **kwargs: reply('LoadState=not-found\n'))
+        assert 'outside-file-must-not-be-read' not in str(result)
+        assert 'shell_record_error' in result['profiles'][0]
+        lease.clean_after_verified_shutdown()
+
+
+def test_diagnostics_entrypoint_never_runs_precheck_or_launcher(monkeypatch, capsys):
+    monkeypatch.setattr('desktopforge.session_launcher.diagnose_session', lambda *args: {'status': 'fixture'})
+    monkeypatch.setattr('desktopforge.session_launcher.check_environment', lambda *args, **kwargs: pytest.fail('precheck'))
+    assert main(['--diagnose']) == 0
+    assert json.loads(capsys.readouterr().out)['status'] == 'fixture'

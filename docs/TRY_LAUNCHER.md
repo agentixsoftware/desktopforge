@@ -20,6 +20,11 @@ with Niri's parser. It starts no desktop and writes no configuration. Add `--jso
 to `--check` for structured results.
 
 The second command opens a nested Niri window and starts Noctalia inside it.
+This is a desktop-session trial, not a DesktopForge installer window; that GUI
+has not been implemented. No application window opens automatically. You should
+see Noctalia's bar/panels. Focus the nested window and use **Super+D** or
+**Super+Space** for its application menu, or **Super+Return** for an available
+terminal. A completely empty window without a bar requires startup diagnostics.
 Quit with **Super+Shift+E** while focused inside the window, close the nested
 window, or press **Ctrl+C** in the launching terminal. Keys may be intercepted by
 the parent compositor; Ctrl+C remains available in the separate terminal.
@@ -113,7 +118,20 @@ force-killed, the user manager may keep the service running until it is stopped;
 no automatic crash takeover is implemented. Runtime markers last only as long as
 the user runtime directory survives.
 
-For diagnostics, replace `<printed-unit>` with the exact name printed by this run:
+While the trial is still open, use another terminal in the same desktop account:
+
+```bash
+PYTHONPATH=src python3 -m desktopforge.session_launcher --diagnose
+```
+
+This command reads the current attempt record, owned unit state, shell readiness
+record, Noctalia log tail and a bounded journal excerpt. It does not start/stop
+anything or change configuration, and it does not inspect another user's home or
+runtime directory. It will report unavailable context if run through an agent
+wrapper that switches accounts. Diagnostics from an ended successful attempt may
+be unavailable because temporary profile files were already cleaned up.
+
+For manual diagnostics, replace `<printed-unit>` with the exact name printed by this run:
 
 ```bash
 journalctl --user -u '<printed-unit>' -b --no-pager
