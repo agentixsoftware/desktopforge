@@ -1,11 +1,13 @@
 """Execute a fixed, typed operation list with journaling. Never claims rollback."""
 import hashlib
+import os
 
 from . import fsops, pkgtx, sessions
 from .evidence import canonical
 from .journal import JournalError
 
-OPERATIONS = ('install_packages', 'create_file', 'register_session', 'validate_config', 'fail')
+OPERATIONS = ('install_packages', 'create_file', 'register_session', 'validate_config',
+              'remove_file', 'remove_packages', 'fail')
 
 
 class OperationFailed(Exception):
@@ -28,6 +30,12 @@ class Adapters:
 
 
 def _describe(item):
+    if item.get('kind') == 'removed-packages':
+        return 'removed packages ' + ' '.join(f'{p["name"]}-{p["evr"]}' for p in item['packages'])
+    if item.get('kind') == 'removed-file':
+        return f'removed {item["target"]}/{item["name"]}'
+    if item.get('kind') == 'removed-unknown':
+        return 'package removal ran but the remaining state is unknown; check: rpm -q ' + ' '.join(item['requested'])
     if item.get('kind') == 'packages' and item.get('unknown'):
         names = ' '.join(item.get('requested', []))
         return f'package transaction ran but the installed state is unknown; check: rpm -q {names}'.strip()
@@ -48,6 +56,12 @@ def _run(operation, targets, allowed_commands, adapters):
         raise OperationFailed(operation.get('reason', 'injected failure'))
     if kind not in OPERATIONS:
         raise OperationFailed('unsupported operation')
+    if kind == 'remove_packages':
+        if adapters.runner is None:
+            raise OperationFailed('no package adapter available')
+        pkgtx.remove(operation['packages'], operation['expected'], adapters.runner)
+        return {'kind': 'removed-packages',
+                'packages': [{'name': r['name'], 'evr': r['evr']} for r in operation['expected']]}
     if kind == 'install_packages':
         if adapters.runner is None:
             raise OperationFailed('no package adapter available')
@@ -72,6 +86,9 @@ def _run(operation, targets, allowed_commands, adapters):
         if not ok:
             raise OperationFailed(f'configuration rejected: {message[:300]}')
         return None
+    if kind == 'remove_file':
+        fsops.remove_file(targets[target], operation['name'], operation['sha256'])
+        return {'kind': 'removed-file', 'target': target, 'name': operation['name']}
     if kind == 'create_file':
         name, data, mode = operation['name'], operation['content'].encode(), operation['mode']
     else:
@@ -97,9 +114,11 @@ def execute(plan, journal, targets, allowed_commands=frozenset(), adapters=None)
                            name=operation.get('name') or operation.get('id'))
             try:
                 item = _run(operation, targets, allowed_commands, adapters)
-            except (OperationFailed, fsops.Conflict, fsops.UnsafePath, sessions.InvalidEntry,
+            except (OperationFailed, fsops.Conflict, fsops.UnsafePath, fsops.Mismatch, sessions.InvalidEntry,
                     pkgtx.PackageError, OSError, KeyError, AttributeError, TypeError) as exc:
-                if isinstance(exc, pkgtx.TransactionRan):
+                if isinstance(exc, pkgtx.TransactionRan) and operation.get('op') == 'remove_packages':
+                    created.append({'kind': 'removed-unknown', 'requested': sorted(operation['packages'])})
+                elif isinstance(exc, pkgtx.TransactionRan):
                     created.extend(_partial_packages(operation, adapters))
                 state = 'failed_manual_recovery' if created else 'failed_recoverable'
                 journal.record('operation_failed', index=index, error=str(exc))
@@ -142,6 +161,14 @@ def _partial_packages(operation, adapters):
 def _verify(created, targets, adapters):
     problems = []
     for item in created:
+        if item.get('kind') in ('removed-file', 'removed-packages', 'removed-unknown'):
+            if item.get('kind') == 'removed-file':
+                try:
+                    os.stat(item['name'], dir_fd=targets[item['target']], follow_symlinks=False)
+                    problems.append(f'{item["name"]} still exists after removal')
+                except FileNotFoundError:
+                    pass
+            continue
         if item.get('kind') == 'packages':
             try:
                 _records, issues = pkgtx.verify_installed(item['packages'], adapters.runner, adapters.signer)

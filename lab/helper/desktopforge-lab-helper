@@ -15,6 +15,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import subprocess
 import sys
 import time
@@ -26,6 +27,9 @@ INTERFACE = BUS_NAME
 ACTION_ID = 'org.desktopforge.lab.apply-synthetic'
 SESSION_ACTION_ID = 'org.desktopforge.lab.register-session'
 INSTALL_ACTION_ID = 'org.desktopforge.lab.install-session'
+REMOVE_ACTION_ID = 'org.desktopforge.lab.remove-session'
+REMOVAL_PREFIX = 'remove-'
+INSTALL_ID = re.compile(r'[0-9a-f]{32}')
 CONFIG_DIR = '/etc/desktopforge'
 SESSION_CONFIG = CONFIG_DIR + '/sessions'
 TEMPLATES = '/usr/local/lib/desktopforge-lab/templates'
@@ -106,6 +110,8 @@ class Rejected(Exception):
 
 def action_for(recipe_id):
     """Each sensitive operation class has its own Polkit action; the strongest applies."""
+    if recipe_id.startswith(REMOVAL_PREFIX):
+        return REMOVE_ACTION_ID
     ops = {op['op'] for op in RECIPES[recipe_id]['operations']}
     if 'install_packages' in ops:
         return INSTALL_ACTION_ID
@@ -135,7 +141,7 @@ def build_plan(recipe_id, current, session_names, render, session_filename,
             blockers.append(f'Hardware-accelerated graphics required (Niri refuses software rendering); '
                             f'probe result: {render_status} ({renderers}).')
     for record in installed:
-        if record['recipe']['id'] == recipe_id and record['state'] == 'completed':
+        if record['recipe']['id'] == recipe_id and record['state'] == 'completed' and not record.get('removed'):
             blockers.append(f'Already installed by DesktopForge (install {record["install_id"]}, '
                             f'{record["recorded_at"]}); nothing to do.')
     for op in recipe['operations']:
@@ -175,6 +181,37 @@ def build_plan(recipe_id, current, session_names, render, session_filename,
 ROLES = {'sessions': 'session-entry', 'session-config': 'session-config'}
 
 
+def build_removal_plan(recipe_id, records_by_id, removed_ids, file_states, installed_now,
+                       resolve_removal, plan_removal):
+    """Removal plan for one recorded installation; everything comes from the record and evidence."""
+    install_id = recipe_id[len(REMOVAL_PREFIX):]
+    if not INSTALL_ID.fullmatch(install_id) or install_id not in records_by_id:
+        raise Rejected('unknown installation')
+    record = records_by_id[install_id]
+    plan = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': 1, 'targets': TARGETS,
+            'install_id': install_id, 'session_name': record['session']['name'], 'operations': [],
+            'kept': {'files': [], 'packages': []}}
+    if install_id in removed_ids:
+        return plan, [f'Installation {install_id} was already removed.']
+    result = plan_removal(record, file_states, installed_now, resolve_removal)
+    plan.update(operations=result['operations'], kept=result['kept'])
+    return plan, result['blockers']
+
+
+def removal_record(records, plan, result, journal_id, caller_uid, recorded_at):
+    removed_files, removed_packages = [], []
+    for item in result['created']:
+        if item.get('kind') == 'removed-file':
+            removed_files.append({'path': f'{TARGETS[item["target"]]}/{item["name"]}'})
+        elif item.get('kind') == 'removed-packages':
+            removed_packages += item['packages']
+    return records.build_removal(
+        removal_id=journal_id, install_id=plan['install_id'], recorded_at=recorded_at, state=result['state'],
+        producer='desktopforge-lab-helper', action=REMOVE_ACTION_ID, uid=caller_uid,
+        removed_files=removed_files, removed_packages=removed_packages,
+        kept_files=plan['kept']['files'], kept_packages=plan['kept']['packages'])
+
+
 def install_record(records, plan, result, journal_id, caller_uid, action, recorded_at):
     """Install record for a recipe that declares a target; None for lab-only recipes."""
     recipe = RECIPES[plan['recipe']]
@@ -194,8 +231,49 @@ def install_record(records, plan, result, journal_id, caller_uid, action, record
         installed=installed, reused=reused)
 
 
+KEPT_TEXT = {'modified': 'it was changed after installation', 'missing': 'it is already gone',
+             'unsafe': 'it is no longer a regular file', 'unreadable': 'it cannot be checked',
+             'reused': 'it was already installed before this installation', 'changed': 'its version changed',
+             'not-installed': 'it is no longer installed', 'required': 'other software needs it'}
+
+
+def describe_change(item):
+    kind = item.get('kind')
+    if kind == 'packages':
+        return 'packages: ' + ' '.join(f'{p["name"]}-{p["evr"]}' for p in item['packages'])
+    if kind == 'removed-packages':
+        return 'removed packages: ' + ' '.join(f'{p["name"]}-{p["evr"]}' for p in item['packages'])
+    if kind == 'removed-file':
+        return f'removed {TARGETS[item["target"]]}/{item["name"]}'
+    if kind == 'removed-unknown':
+        return 'package removal state unknown: ' + ' '.join(item['requested'])
+    return f'{TARGETS[item["target"]]}/{item["name"]}'
+
+
+def summarize_removal(plan):
+    lines = []
+    for op in plan['operations']:
+        if op['op'] == 'remove_file':
+            lines.append(f'Remove {op["path"]} (unchanged since installation)')
+        elif op['op'] == 'remove_packages':
+            lines.append('Remove packages this installation added: ' +
+                         ', '.join(f'{r["name"]} {r["evr"]}' for r in op['expected']))
+            if 'niri' in op['packages']:
+                lines.append('Removing niri also removes Fedora\'s own "Niri" login session, which that package provides.')
+    for item in plan['kept']['files']:
+        lines.append(f'Keep {item["path"]}: {KEPT_TEXT[item["reason"]]}')
+    for item in plan['kept']['packages']:
+        lines.append(f'Keep package {item["name"]}: {KEPT_TEXT[item["reason"]]}')
+    lines.append('Not touched: your own settings and data, such as ~/.local/state/noctalia, ~/.cache/noctalia, '
+                 '~/.config/noctalia and ~/.local/state/desktopforge.')
+    lines.append('If the login screen still preselects this session, choose another session there.')
+    return lines
+
+
 def summarize(plan):
     """Plain-language list for the client to show before approval."""
+    if plan['recipe'].startswith(REMOVAL_PREFIX):
+        return summarize_removal(plan)
     lines = []
     for op in plan['operations']:
         if op['op'] == 'install_packages':
@@ -281,7 +359,7 @@ def validate_niri(_dir_fd, name):  # pragma: no cover - VM only
 
 def run_service():  # pragma: no cover - exercised in the disposable VM
     sys.path.insert(0, CORE_PATH)
-    from desktopforge_helper import evidence, executor, fsops, pkgtx, records, sessions
+    from desktopforge_helper import evidence, executor, fsops, pkgtx, records, removal, sessions
     from desktopforge_helper.grants import Caller, GrantRejected, GrantStore
     from desktopforge_helper.journal import Journal, JournalError
     from gi.repository import Gio, GLib
@@ -342,15 +420,59 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                    'session-config': evidence.directory_evidence(session_config_fd)}
         return current, sessions.display_names(sessions_fd, current['sessions'])
 
+    def load_records():
+        installs, removed = {}, set()
+        for entry in evidence.directory_evidence(installs_fd):
+            if entry.get('type') != 'file' or not entry['name'].endswith('.json'):
+                continue
+            try:
+                data = fsops.read_small(installs_fd, entry['name'])
+                if entry['name'].endswith('.removal.json'):
+                    item = records.parse_removal(data)
+                    if item['state'] == 'completed':
+                        removed.add(item['install_id'])
+                else:
+                    item = records.parse(data)
+                    installs[item['install_id']] = item
+            except (records.RecordError, fsops.UnsafePath, OSError):
+                pass  # an unreadable record does not unlock anything; evidence still covers it
+        return installs, removed
+
+    def file_state(sessions_fd, path, sha256):
+        directory, name = os.path.split(path)
+        fd = {SESSIONS_DIR: sessions_fd, SESSION_CONFIG: session_config_fd}.get(directory)
+        if fd is None:
+            return 'unreadable'
+        try:
+            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return 'missing'
+        if not stat.S_ISREG(info.st_mode):
+            return 'unsafe'
+        try:
+            return 'intact' if fsops.hash_file(fd, name) == sha256 else 'modified'
+        except OSError:
+            return 'unreadable'
+
     def plan_for(recipe_id, sessions_fd):
         current, names = inspect(sessions_fd)
-        installed = []
-        for entry in current['installs']:
-            if entry['name'].endswith('.json') and entry.get('type') == 'file':
-                try:
-                    installed.append(records.parse(fsops.read_small(installs_fd, entry['name'])))
-                except (records.RecordError, fsops.UnsafePath, OSError):
-                    pass  # an unreadable record does not unlock anything; evidence still covers it
+        installs, removed = load_records()
+        if recipe_id.startswith(REMOVAL_PREFIX):
+            install_id = recipe_id[len(REMOVAL_PREFIX):]
+            record = installs.get(install_id)
+            file_states, installed_now = {}, {}
+            if record is not None:
+                file_states = {f['path']: file_state(sessions_fd, f['path'], f['sha256']) for f in record['files']}
+                names_ = sorted({p['name'] for p in record['packages']['installed']})
+                if names_:
+                    found, _missing = pkgtx.query_installed(names_, runner)
+                    installed_now = {n: [{'evr': r['evr'], 'arch': r['arch']} for r in rows]
+                                     for n, rows in found.items()}
+            plan, blockers = build_removal_plan(recipe_id, installs, removed, file_states, installed_now,
+                                                lambda n: pkgtx.resolve_removal(n, runner), removal.plan_removal)
+            plan['file_states'] = file_states  # bound into the plan hash
+            return current, plan, blockers
+        installed = [dict(r, removed=r['install_id'] in removed) for r in installs.values()]
         plan, blockers = build_plan(recipe_id, current, names, sessions.render, sessions.session_filename,
                                     resolve=lambda p, r: pkgtx.resolve(p, r, runner), templates=templates,
                                     installed=installed, rendering=probe_rendering)
@@ -496,20 +618,24 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
             finally:
                 journal.close()
             record_note = ''
+            stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             if result['created'] or result['state'] == 'completed':
                 try:
-                    record = install_record(records, dict(plan, plan_hash=grant.plan_hash), result,
-                                            journal.install_id, caller.uid, action,
-                                            time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
-                    if record is not None:
-                        fsops.create_file(installs_fd, f'{journal.install_id}.json', records.serialize(record))
-                        record_note = f'{records.RECORDS_DIR}/{journal.install_id}.json'
+                    if plan['recipe'].startswith(REMOVAL_PREFIX):
+                        name = f'{journal.install_id}.removal.json'
+                        data = records.serialize_removal(removal_record(records, plan, result, journal.install_id,
+                                                                        caller.uid, stamp))
+                    else:
+                        record = install_record(records, dict(plan, plan_hash=grant.plan_hash), result,
+                                                journal.install_id, caller.uid, action, stamp)
+                        name, data = f'{journal.install_id}.json', record and records.serialize(record)
+                    if data:
+                        fsops.create_file(installs_fd, name, data)
+                        record_note = f'{records.RECORDS_DIR}/{name}'
                 except (records.RecordError, fsops.Conflict, fsops.UnsafePath, OSError) as exc:
                     record_note = f'install record could not be written: {exc}'
             finish({'outcome': result['state'], 'install_id': journal.install_id, 'record': record_note,
-                    'created': [f'{TARGETS[c["target"]]}/{c["name"]}' if c.get('kind') != 'packages'
-                                else 'packages: ' + ' '.join(f'{p["name"]}-{p["evr"]}' for p in c['packages'])
-                                for c in result['created']],
+                    'created': [describe_change(c) for c in result['created']],
                     'recovery': result.get('recovery') or '', 'error': result.get('error', ''),
                     'rolled_back': False, 'changes_made': bool(result['created'])})
 

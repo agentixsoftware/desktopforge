@@ -146,3 +146,38 @@ def read_small(dir_fd, name, limit=64 * 1024):
     if len(data) > limit:
         raise UnsafePath(f'{name} is larger than {limit} bytes')
     return data
+
+
+class Mismatch(Exception):
+    """The file is not the one that was recorded; it is kept."""
+
+
+def remove_file(dir_fd, name, sha256):
+    """Remove a regular file only if it still has the recorded content.
+
+    The content is hashed through a no-follow handle and the name is checked to
+    still refer to that same inode immediately before unlinking.
+    """
+    check_name(name)
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+    except FileNotFoundError as exc:
+        raise Mismatch(f'{name} is missing') from exc
+    except OSError as exc:
+        raise Mismatch(f'{name} cannot be opened safely: {exc.strerror}') from exc
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise Mismatch(f'{name} is not a regular file')
+        digest = hashlib.sha256()
+        while chunk := os.read(fd, 1 << 16):
+            digest.update(chunk)
+        if digest.hexdigest() != sha256:
+            raise Mismatch(f'{name} was modified')
+        current = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise Mismatch(f'{name} was replaced')
+        os.unlink(name, dir_fd=dir_fd)
+    finally:
+        os.close(fd)
+    os.fsync(dir_fd)

@@ -46,7 +46,7 @@ def dnf5_argv(packages, repositories, simulate):
             '--', *packages]
 
 
-def parse_resolution(text):
+def parse_resolution(text, allowed=ALLOWED_SECTIONS, purpose='new installs'):
     """Parse DNF5's transaction table into (to_install, blockers).
 
     to_install: sorted list of {name, arch, evr, repo}. Any section other than
@@ -80,8 +80,8 @@ def parse_resolution(text):
             if line not in KNOWN_SECTIONS:
                 raise PackageError(f'unrecognized transaction section {line[:80]!r}')
             section = line
-            if line not in ALLOWED_SECTIONS:
-                blockers.append(f'Transaction would include "{line[:-1]}"; only new installs are allowed')
+            if line not in allowed:
+                blockers.append(f'Transaction would include "{line[:-1]}"; only {purpose} are allowed')
             continue
         if section is None:
             raise PackageError('transaction row outside a section')
@@ -91,7 +91,7 @@ def parse_resolution(text):
         match = ROW.fullmatch(line.rstrip())
         if not match:
             raise PackageError(f'unparseable transaction row {line.strip()[:80]!r}')
-        if section in ALLOWED_SECTIONS:
+        if section in allowed:
             rows.append(match.groupdict())
     return sorted(rows, key=lambda r: (r['name'], r['arch'])), blockers
 
@@ -179,3 +179,50 @@ def install(packages, repositories, expected, runner, signer):
     if code != 0 or problems:
         raise TransactionRan(f'package transaction status {code}; ' + ('; '.join(problems) or 'see journal'))
     return records, output
+
+
+# ---- removal -------------------------------------------------------------------------
+
+REMOVE_SECTIONS = {'Removing:'}
+
+
+def dnf5_remove_argv(packages, simulate):
+    """The only DNF5 removal command line: named packages, no automatic extra removals."""
+    if not packages or not all(isinstance(p, str) and PACKAGE.fullmatch(p) for p in packages):
+        raise PackageError('invalid package name')
+    return [DNF5, 'remove', '--assumeno' if simulate else '--assumeyes',
+            '--setopt=clean_requirements_on_remove=False', '--', *packages]
+
+
+def resolve_removal(packages, runner):
+    """Simulate removing exactly these packages. Returns (to_remove, blockers)."""
+    code, output = runner(dnf5_remove_argv(packages, simulate=True))
+    try:
+        rows, blockers = parse_resolution(output, allowed=REMOVE_SECTIONS, purpose='the recorded packages')
+    except PackageError as exc:
+        tail = ' | '.join(output.strip().splitlines()[-3:])[-300:]
+        raise PackageError(f'{exc} (status {code}; output: {tail or "none"})') from None
+    if code not in (0, 1):
+        raise PackageError(f'removal resolution failed with status {code}')
+    extra = sorted({r['name'] for r in rows} - set(packages))
+    if extra:
+        blockers.append('Removal would also remove packages DesktopForge did not install: ' + ', '.join(extra))
+    return rows, blockers
+
+
+def remove(packages, expected, runner):
+    """Re-resolve, require the reviewed set, remove, then verify every package is gone."""
+    def key(rows):
+        return sorted((r['name'], r['arch'], r['evr']) for r in rows)
+    current, blockers = resolve_removal(packages, runner)
+    if blockers or key(current) != key(expected):
+        raise PackageError('package removal changed since preview; nothing was removed')
+    code, output = runner(dnf5_remove_argv(packages, simulate=False))
+    try:
+        records, missing = query_installed(sorted(set(packages)), runner)
+    except PackageError as exc:
+        raise TransactionRan(f'package removal status {code}; verification failed: {exc}') from None
+    remaining = sorted(records)
+    if code != 0 or remaining:
+        raise TransactionRan(f'package removal status {code}; still installed: {", ".join(remaining) or "none"}')
+    return output

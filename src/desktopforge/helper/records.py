@@ -126,3 +126,71 @@ def parse(data):
         return validate(json.loads(data))
     except (ValueError, TypeError, AttributeError, KeyError) as exc:
         raise RecordError(f'unreadable record: {exc}') from None
+
+
+# ---- removal records --------------------------------------------------------------------
+# Written next to the install record as <removal_id>.removal.json. The install
+# record itself is never modified; together they form the installation's history.
+
+REMOVAL_STATES = ('completed', 'failed_recoverable', 'failed_manual_recovery')
+KEPT_REASONS = ('modified', 'missing', 'unsafe', 'unreadable', 'reused', 'changed', 'required', 'not-installed')
+
+
+def validate_removal(removal):
+    _keys(removal, ('schema', 'kind', 'removal_id', 'install_id', 'recorded_at', 'state', 'producer',
+                    'authorization', 'removed', 'kept', 'journal'))
+    _require(removal['schema'] == SCHEMA and removal['kind'] == 'removal', 'unsupported removal record')
+    for key in ('removal_id', 'install_id'):
+        _require(isinstance(removal[key], str) and INSTALL_ID.fullmatch(removal[key]), key)
+    _require(isinstance(removal['recorded_at'], str) and TIMESTAMP.fullmatch(removal['recorded_at']), 'recorded_at')
+    _require(removal['state'] in REMOVAL_STATES, 'state')
+    _require(isinstance(removal['producer'], str) and IDENT.fullmatch(removal['producer']), 'producer')
+    _require(removal['journal'] == removal['removal_id'] + '.jsonl', 'journal')
+    auth = removal['authorization']
+    _keys(auth, ('action', 'uid'))
+    _require(isinstance(auth['action'], str) and re.fullmatch(r'[a-z0-9.-]{1,100}', auth['action']), 'action')
+    _require(type(auth['uid']) is int and 0 <= auth['uid'] < 2**32 - 1, 'uid')
+    for group in ('removed', 'kept'):
+        _keys(removal[group], ('files', 'packages'))
+        files, packages = removal[group]['files'], removal[group]['packages']
+        _require(isinstance(files, list) and len(files) <= MAX_FILES, f'{group} files')
+        _require(isinstance(packages, list) and len(packages) <= MAX_PACKAGES, f'{group} packages')
+        for item in files:
+            _keys(item, ('path', 'reason') if group == 'kept' else ('path',))
+            _require(isinstance(item['path'], str) and any(p.fullmatch(item['path']) for p in FILE_PATTERNS.values())
+                     and '..' not in item['path'], 'file path outside DesktopForge namespaces')
+            if group == 'kept':
+                _require(item['reason'] in KEPT_REASONS, 'kept reason')
+        for item in packages:
+            _keys(item, ('name', 'evr', 'reason') if group == 'kept' else ('name', 'evr'))
+            _require(isinstance(item['name'], str) and NAME.fullmatch(item['name']), 'package name')
+            _require(item['evr'] is None or (isinstance(item['evr'], str) and EVR.fullmatch(item['evr'])), 'evr')
+            if group == 'kept':
+                _require(item['reason'] in KEPT_REASONS, 'kept reason')
+    return removal
+
+
+def build_removal(*, removal_id, install_id, recorded_at, state, producer, action, uid,
+                  removed_files, removed_packages, kept_files, kept_packages):
+    removal = {
+        'schema': SCHEMA, 'kind': 'removal', 'removal_id': removal_id, 'install_id': install_id,
+        'recorded_at': recorded_at, 'state': state, 'producer': producer,
+        'authorization': {'action': action, 'uid': uid},
+        'removed': {'files': sorted(removed_files, key=lambda f: f['path']),
+                    'packages': sorted(removed_packages, key=lambda p: p['name'])},
+        'kept': {'files': sorted(kept_files, key=lambda f: f['path']),
+                 'packages': sorted(kept_packages, key=lambda p: p['name'])},
+        'journal': removal_id + '.jsonl',
+    }
+    return validate_removal(removal)
+
+
+def serialize_removal(removal):
+    return (json.dumps(validate_removal(removal), indent=2, sort_keys=True) + '\n').encode()
+
+
+def parse_removal(data):
+    try:
+        return validate_removal(json.loads(data))
+    except (ValueError, TypeError, AttributeError, KeyError) as exc:
+        raise RecordError(f'unreadable removal record: {exc}') from None

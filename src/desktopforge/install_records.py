@@ -97,6 +97,7 @@ def inspect_installations(root: Path = Path('/'), package_inventory: dict | None
         return {**result, 'status': 'unavailable',
                 'issues': ['Install record directory is not a root-owned, non-writable directory; ignored.']}
     names = sorted(n for n in os.listdir(directory) if n.endswith('.json'))
+    removals = {}
     if len(names) > MAX_RECORDS:
         result['issues'].append(f'Only the first {MAX_RECORDS} install records were read.')
     for name in names[:MAX_RECORDS]:
@@ -109,13 +110,27 @@ def inspect_installations(root: Path = Path('/'), package_inventory: dict | None
                 raise schema.RecordError('not root-owned or writable by others')
             fd = _open_nofollow(path)
             with os.fdopen(fd, 'rb') as stream:
-                record = schema.parse(stream.read(MAX_RECORD_BYTES + 1))
+                data = stream.read(MAX_RECORD_BYTES + 1)
+            if name.endswith('.removal.json'):
+                removal = schema.parse_removal(data)
+                if name != removal['removal_id'] + '.removal.json':
+                    raise schema.RecordError('file name does not match removal_id')
+                removals.setdefault(removal['install_id'], []).append(removal)
+                continue
+            record = schema.parse(data)
             if name != record['install_id'] + '.json':
                 raise schema.RecordError('file name does not match install_id')
         except (OSError, schema.RecordError) as exc:
             result['issues'].append(f'{name}: ignored ({exc})')
             continue
         result['installations'].append(summarize(record, root, package_inventory))
+    for installation in result['installations']:
+        history = sorted(removals.get(installation['install_id'], []), key=lambda r: r['recorded_at'])
+        if history:
+            last = history[-1]
+            installation['removal'] = {'removal_id': last['removal_id'], 'recorded_at': last['recorded_at'],
+                                       'state': last['state'], 'kept': last['kept']}
+            installation['status'] = 'removed' if last['state'] == 'completed' else 'partially-removed'
     result['installations'].sort(key=lambda r: r['recorded_at'])
     result['status'] = 'observed' if result['installations'] else ('none' if not result['issues'] else 'unavailable')
     return result
@@ -179,5 +194,6 @@ def launch_warning(installation: dict) -> str | None:
 def installation_for(inventory: dict, compositor: str, shell: str) -> dict | None:
     """Most recent completed DesktopForge installation of this combination, if any."""
     found = [i for i in (inventory.get('desktopforge_installations') or {}).get('installations', [])
-             if i['target'] == {'compositor': compositor, 'shell': shell} and i['state'] == 'completed']
+             if i['target'] == {'compositor': compositor, 'shell': shell} and i['state'] == 'completed'
+             and i['status'] != 'removed']
     return found[-1] if found else None
