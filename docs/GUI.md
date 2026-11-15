@@ -96,15 +96,20 @@ installation or the separately running ryoku session.
 ## Installed package evidence
 
 The **Packages** tab shows the selected compositor and shell's exact RPM package
-names, installed epoch/version/release and architecture, and unverified reuse
+names, installed epoch/version/release and architecture, resolved executable
+paths, and the package names that own those paths. It also shows unverified reuse
 candidates. The shared detector queries a fixed allowlist on live Fedora only;
 there is no DNF invocation, repository refresh, transaction or privilege request.
 Timeouts, unavailable RPM and ambiguous responses stay unknown. An absent package
 means only that exact name is absent; an executable may have another origin.
 Arch/CachyOS inspection remains unknown pending a separate adapter.
 
-Vendor and source-RPM header fields are available in JSON details. They do not
-prove the originating repository, signature trust, executable ownership or safe
-reuse. Package presence never enables Install or satisfies recipe validation.
+Vendor and source-RPM header fields are available in JSON details. RPM ownership
+does not prove the originating repository, signature trust or safe reuse. A
+package name can differ from its command name: on the reference Fedora system,
+`/usr/bin/ryoku` is owned by `ryoku`, while the installed `ryoku-shell` package
+owns `/usr/bin/ryoku-shell`. This is reported as an owner mismatch for the
+resolved command path, not as evidence that the shell package is missing.
+Package presence never enables Install or satisfies recipe validation.
 The queries use RPM's documented [query operation](https://rpm.org/docs/6.0.x/man/rpm.8)
 and [query format](https://rpm.org/docs/6.0.x/man/rpm-queryformat.7).

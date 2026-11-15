@@ -105,15 +105,30 @@ def detect_system(
     distro = parse_os_release(os_text or "")
     package_managers = [name for name in ("dnf5", "dnf", "pacman", "apt-get") if lookup(name)]
     compositor_bins = {"niri": "niri", "hyprland": "Hyprland", "sway": "sway"}
-    compositor_evidence = {
-        name: {"executable": executable, "found": bool(lookup(executable))}
-        for name, executable in compositor_bins.items()
-    }
+    compositor_evidence = {}
+    for name, executable in compositor_bins.items():
+        found = lookup(executable)
+        resolved = None
+        if found and root == Path("/"):
+            try:
+                resolved = str(Path(found).resolve(strict=True))
+            except (OSError, RuntimeError):
+                pass
+        compositor_evidence[name] = {"executable": executable, "found": bool(found),
+                                     "path": resolved}
     shell_bins = SHELL_EXECUTABLES
-    shell_evidence = {
-        name: {"executables_checked": list(executables), "found": any(bool(lookup(exe)) for exe in executables)}
-        for name, executables in shell_bins.items()
-    }
+    shell_evidence = {}
+    for name, executables in shell_bins.items():
+        matches = [(exe, lookup(exe)) for exe in executables]
+        found = next(((exe, path) for exe, path in matches if path), None)
+        resolved = None
+        if found and root == Path("/"):
+            try:
+                resolved = str(Path(found[1]).resolve(strict=True))
+            except (OSError, RuntimeError):
+                pass
+        shell_evidence[name] = {"executables_checked": list(executables), "found": found is not None,
+                                "executable": found[0] if found else None, "path": resolved}
     wayland_sessions = _session_entries(root / "usr/share/wayland-sessions")
     process_evidence = inspect_processes(root / "proc") if root == Path("/") else []
     analysis = session_analysis(wayland_sessions, env, process_evidence)
@@ -127,7 +142,8 @@ def detect_system(
     preflight = inspect_preflight(root, config_home)
     return {
         "schema_version": 4,
-        "package_inventory": inspect_packages(distro.get("ID"), root),
+        "package_inventory": inspect_packages(distro.get("ID"), root,
+            executables={**compositor_evidence, **{f'shell:{k}': v for k, v in shell_evidence.items()}}),
         "preflight_evidence": preflight,
         "distribution": {
             "id": distro.get("ID"),

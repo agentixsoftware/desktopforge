@@ -8,7 +8,7 @@ TRACKED_PACKAGES = ('hyprland', 'niri', 'noctalia', 'noctalia-shell', 'dms', 'ry
 RPM_FORMAT = '%{NAME}\t%{EPOCHNUM}\t%{VERSION}\t%{RELEASE}\t%{ARCH}\t%{VENDOR}\t%{SOURCERPM}\n'
 LIMITATIONS = [
     'Installed RPM headers do not establish the originating repository or signature trust.',
-    'Package presence and version do not establish executable ownership, compatibility or safe reuse.',
+    'Package presence and version do not establish compatibility or safe reuse.',
     'No repository metadata, dependency solver, package transaction or executable version command is run.',
     'Arch/CachyOS package inspection is not implemented; their package state remains unknown.',
 ]
@@ -34,7 +34,35 @@ def parse_rpm_records(text: str, name: str) -> list[dict]:
     return sorted(records, key=lambda row: (row['architecture'], row['epoch'], row['version'], row['release']))
 
 
-def inspect_packages(distribution: str | None, root: Path = Path('/'), *, runner=None) -> dict:
+def query_file_owners(path: str, *, runner=None) -> dict:
+    """Ask the local RPM database who owns one discovered absolute file path."""
+    if (not isinstance(path, str) or not path.startswith('/') or path.startswith('//')
+            or any(part in ('.', '..') for part in path.split('/'))
+            or any(ord(char) < 32 for char in path) or len(path) > 4096):
+        return {'path': path if isinstance(path, str) else None, 'status': 'unknown',
+                'owners': [], 'reason': 'Executable path is not a safe absolute path.'}
+    run = subprocess.run if runner is None else runner
+    try:
+        result = run(['/usr/bin/rpm', '--query', '--whatprovides', '--qf', '%{NAME}\\n', path],
+                     stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3,
+                     shell=False, cwd='/', env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin', 'HOME': '/'})
+        if result.returncode == 0 and not result.stderr:
+            owners = result.stdout.splitlines()
+            if owners and all(1 <= len(name) <= 256 and all(c.isalnum() or c in '._+-' for c in name)
+                              for name in owners):
+                return {'path': path, 'status': 'owned', 'owners': sorted(set(owners)),
+                        'reason': 'Path is listed by the local RPM database.'}
+        elif result.returncode == 1 and not result.stderr and not result.stdout.strip():
+            return {'path': path, 'status': 'unowned', 'owners': [],
+                    'reason': 'No owner was reported for this path by the local RPM database.'}
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        pass
+    return {'path': path, 'status': 'unknown', 'owners': [],
+            'reason': 'RPM file-owner query failed or returned ambiguous diagnostics.'}
+
+
+def inspect_packages(distribution: str | None, root: Path = Path('/'), *, runner=None,
+                     executables: dict | None = None) -> dict:
     """Query a fixed allowlist only on the live Fedora root.
 
     Fixture roots never access the host RPM database. Tests may explicitly inject
@@ -64,9 +92,20 @@ def inspect_packages(distribution: str | None, root: Path = Path('/'), *, runner
             except (OSError, subprocess.SubprocessError, UnicodeError, ValueError):
                 record['reason'] = 'RPM query unavailable, timed out or returned malformed evidence.'
         packages.append(record)
+    paths = []
+    if enabled and executables:
+        for component, evidence in sorted(executables.items()):
+            if isinstance(evidence, dict) and evidence.get('found'):
+                path = evidence.get('path')
+                if path:
+                    paths.append({'component': component, **query_file_owners(path, runner=run)})
+                else:
+                    paths.append({'component': component, 'path': None, 'status': 'unknown',
+                                  'owners': [], 'reason': 'Executable discovery did not provide its resolved path.'})
     return {'schema_version': 1, 'manager': 'rpm' if supported else None,
             'status': 'observed' if all(p['status'] != 'unknown' for p in packages) else 'incomplete',
-            'packages': packages, 'limitations': list(LIMITATIONS)}
+            'packages': packages, 'executable_ownership': paths,
+            'limitations': list(LIMITATIONS)}
 
 
 def package_assessment(inventory: dict, compositor: str, shell: str) -> dict:
@@ -77,6 +116,13 @@ def package_assessment(inventory: dict, compositor: str, shell: str) -> dict:
     for name in names:
         row = observed.get(name, {'name': name, 'status': 'unknown', 'records': [],
                                   'reason': 'No installed-package evidence is available.'})
-        packages.append({**row, 'reuse': 'candidate_unverified' if row['status'] == 'installed' else 'unavailable'})
+        component = compositor if name == compositor else f'shell:{shell}'
+        owners = next((item for item in inventory.get('package_inventory', {}).get('executable_ownership', [])
+                       if item.get('component') == component), None)
+        ownership = {'status': 'unknown', 'path': None, 'owners': [],
+                     'reason': 'No RPM executable-owner evidence is available.'} if owners is None else owners
+        packages.append({**row, 'executable_ownership': ownership,
+                         'owner_matches_package': name in ownership.get('owners', []),
+                         'reuse': 'candidate_unverified' if row['status'] == 'installed' else 'unavailable'})
     return {'status': 'unverified', 'packages': packages,
             'limitations': list(LIMITATIONS)}

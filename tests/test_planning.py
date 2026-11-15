@@ -69,10 +69,14 @@ def test_installed_packages_do_not_satisfy_recipe_or_mutate_evidence(tmp_path):
     data['package_inventory']['packages'] = [
         {'name': name, 'status': 'installed', 'records': [], 'reason': 'Fixture RPM header'}
         for name in ('niri', 'noctalia')]
+    data['package_inventory']['executable_ownership'] = [
+        {'component': 'niri', 'path': '/usr/bin/niri', 'status': 'owned', 'owners': ['niri']},
+        {'component': 'shell:noctalia', 'path': '/usr/bin/noctalia', 'status': 'owned', 'owners': ['noctalia']}]
     before = json.dumps(data, sort_keys=True)
     plan = build_plan(data, 'niri', 'noctalia')
     assert plan['status'] == 'blocked' and plan['executable'] is False
     assert all(p['reuse'] == 'candidate_unverified' for p in plan['package_assessment']['packages'])
+    assert all(p['owner_matches_package'] for p in plan['package_assessment']['packages'])
     assert any('provenance' in reason for reason in plan['blockers'])
     assert len(plan['operations']) == 5
     assert json.dumps(data, sort_keys=True) == before

@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from desktopforge.packages import TRACKED_PACKAGES, inspect_packages, package_assessment, parse_rpm_records
+from desktopforge.packages import TRACKED_PACKAGES, inspect_packages, package_assessment, parse_rpm_records, query_file_owners
 
 
 def response(name, version='5.4.1', arch='x86_64'):
@@ -68,6 +68,46 @@ def test_installed_is_only_an_unverified_reuse_candidate(tmp_path):
     assert [p['name'] for p in assessment['packages']] == ['niri', 'ryoku-shell']
     assert all(p['reuse'] == 'candidate_unverified' for p in assessment['packages'])
     assert package_assessment({}, 'niri', 'noctalia')['packages'][1]['status'] == 'unknown'
+
+
+def test_owner_query_only_accepts_resolved_absolute_paths():
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0, stderr='', stdout='niri\n')
+    assert query_file_owners('/usr/bin/niri', runner=run)['owners'] == ['niri']
+    assert query_file_owners('/usr/bin/../bin/niri', runner=run)['status'] == 'unknown'
+    assert query_file_owners('niri', runner=run)['status'] == 'unknown'
+    assert len(calls) == 1 and calls[0][-1] == '/usr/bin/niri'
+
+
+@pytest.mark.parametrize('rc,stdout,stderr,status', [
+    (0, 'ryoku-shell\n', '', 'owned'),
+    (0, '', '', 'unknown'),
+    (0, 'not a package name!\n', '', 'unknown'),
+    (1, '', '', 'unowned'),
+    (1, '', 'rpm error', 'unknown'),
+    (2, '', '', 'unknown'),
+])
+def test_owner_query_ambiguous_responses_remain_unknown(rc, stdout, stderr, status):
+    result = query_file_owners('/usr/bin/ryoku-shell', runner=lambda *a, **k: SimpleNamespace(returncode=rc, stdout=stdout, stderr=stderr))
+    assert result['status'] == status
+
+
+def test_package_inventory_queries_only_resolved_paths(tmp_path):
+    calls = []
+    def run(args, **kwargs):
+        calls.append(args)
+        if args[2] == '--whatprovides':
+            return SimpleNamespace(returncode=0, stderr='', stdout=('niri\n' if args[-1] == '/usr/bin/niri' else 'ryoku-shell\n'))
+        return SimpleNamespace(returncode=0, stderr='', stdout=response(args[-1]))
+    result = inspect_packages('fedora', tmp_path, runner=run,
+        executables={'niri': {'found': True, 'path': '/usr/bin/niri'},
+                     'shell:ryoku': {'found': True, 'path': '/usr/bin/ryoku-shell'},
+                     'sway': {'found': True, 'path': None}})
+    assert len(result['executable_ownership']) == 3
+    assert result['executable_ownership'][2]['status'] == 'unknown'
+    assert len([args for args in calls if '--whatprovides' in args]) == 2
 
 
 @pytest.mark.parametrize('text', [response('niri').replace('\t0\t', '\tbogus\t'), response('niri').replace('x86_64', '(none)'), response('niri') + '\n', response('niri').replace('Fedora Project', 'Fedora\x00Project')])
