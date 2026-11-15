@@ -231,11 +231,23 @@ blocked a re-apply. Appending a line to the config gave `modified` (blocked,
 naming the file); moving the session entry away gave `incomplete`; restoring
 both gave `intact` again.
 
+## Reboot (2026-11-15, virgl guest)
+
+| Case | Result |
+| --- | --- |
+| Reboot with Niri + Noctalia installed | New boot ID; GDM active; 0 failed system units; both Niri entries listed; plan `installed`, `intact`; rendering `hardware` |
+| Login to the DesktopForge session on the fresh boot | Launcher unit and `graphical-session.target` active; Noctalia drawn |
+| Reboot while that session runs | Unit stopped in ~50 ms during shutdown. The launcher then unset its 5 variables and removed its 3 runtime files, before the user manager reached `shutdown.target`. Next boot: GDM active, 0 failed units |
+| GNOME afterwards | `GDMSESSION=gnome`, 0 failed user units, no leftover Niri values |
+
+GDM kept remembering the Niri session across reboots (expected; it renders on
+this GPU).
+
 ## Not yet covered
 
 The helper has not yet been tested for caller disconnect during an apply
 dialog; the probe has. Also not tested: locked/inactive sessions, two users,
 concurrent applies from separate users, session removal (a v0.1 non-goal, needs ownership records), journal-disk-full in the guest, path
-replacement races in the guest (unit-tested only), reboot during apply, and
+replacement races in the guest (unit-tested only), reboot during apply (reboot with an installed/running session is covered above), and
 SDDM. Real recipe operations (package transactions, session registration) need
 their own operation classes and reviews before any of this approaches production.
