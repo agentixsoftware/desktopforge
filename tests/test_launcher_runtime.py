@@ -318,8 +318,11 @@ def test_model_and_runtime_are_separate_from_read_only_cli(monkeypatch, capsys):
     capsys.readouterr()
     assert main(['list', '--json']) == 0
     capsys.readouterr()
-    assert main(['plan', '--compositor', 'niri', '--shell', 'noctalia', '--json']) == 1
-    assert json.loads(capsys.readouterr().out)['executable'] is False
+    # Live system: exit 1 unless DesktopForge itself installed this combination intact.
+    code = main(['plan', '--compositor', 'niri', '--shell', 'noctalia', '--json'])
+    plan = json.loads(capsys.readouterr().out)
+    assert plan['executable'] is False
+    assert code == (0 if plan['status'] == 'installed' else 1)
 
 
 
