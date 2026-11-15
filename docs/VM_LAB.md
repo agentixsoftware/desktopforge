@@ -82,3 +82,10 @@ it again, launch the same foreground `start` command from an ordinary host termi
 and leave that terminal open; SSH/QMP administration can then continue separately.
 Downloaded packages remain in the guest cache, but confirm transaction state after
 any unexpected shutdown before resuming package installation.
+
+The launcher now selects accessible KVM automatically, with software emulation as
+the fallback. Explicit modes are `./scripts/desktopforge-vm --accelerator kvm start`
+and `./scripts/desktopforge-vm --accelerator tcg start`. An explicit KVM request
+fails before launch if the device is inaccessible. Accelerator selection applies
+only at a subsequent start; it never restarts a running guest or changes host
+permissions, kernel modules or group membership.
