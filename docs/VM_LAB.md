@@ -123,3 +123,26 @@ disk expanded to 16 GiB. Hardware boot and the visible GTK window require the
 normal host launch and are not yet recorded as verified. The original emulated
 guest is paused with its in-flight RPM transaction preserved; it is not a completed
 baseline and its disk must not be reused concurrently by this new profile.
+
+## Cold disk backups, restore and reboot behavior
+
+Guest reboots now reset in place: the launcher no longer passes `-no-reboot`, so
+QEMU exits only on guest poweroff or a QMP quit. This was verified on the KVM
+profile (new guest boot ID, same QEMU process and supervisor).
+
+Mutating tests start from a named, verified cold backup of the working disk:
+
+```bash
+./scripts/desktopforge-vm --profile kvm stop        # wait for the supervisor to exit
+./scripts/desktopforge-vm --profile kvm backup gnome-baseline
+./scripts/desktopforge-vm --profile kvm backups     # list recorded backups
+./scripts/desktopforge-vm --profile kvm restore gnome-baseline
+```
+
+`backup` and `restore` refuse while the profile's control endpoint answers, so a
+live disk is never copied or replaced. Copies use copy-on-write reflinks where
+the filesystem supports them (btrfs on the development laptop: near-zero space).
+Each backup records its SHA-256 in a manifest; restore re-verifies the backup,
+stages a verified copy and atomically replaces the working disk. An existing
+backup is never overwritten and names are restricted to `[a-z0-9._-]`. Backups
+live in the ignored `.desktopforge-vm/backups-kvm/` directory.

@@ -1,10 +1,12 @@
 #!/usr/bin/python3
 """Control the prepared, disposable local VM; never install host packages."""
 import argparse
+import hashlib
 import functools
 import http.server
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import stat
@@ -53,6 +55,103 @@ def qmp(command, arguments=None):
             return result['return']
 
 
+def is_running():
+    """True when the profile's control endpoint answers; refused means stopped."""
+    if not USE_TLS and not (RUN / 'qmp.sock').exists():
+        return False
+    try:
+        qmp('query-status')
+    except (ConnectionRefusedError, FileNotFoundError):
+        return False
+    return True
+
+
+BACKUP_NAME = re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
+
+
+def backup_dir():
+    return ROOT / ('backups-kvm' if USE_TLS else 'backups')
+
+
+def backup_paths(name):
+    if not BACKUP_NAME.fullmatch(name or '') or '..' in name:
+        raise ValueError('Backup name must be 1-64 of [a-z0-9._-], starting alphanumeric')
+    folder = backup_dir()
+    return folder / f'{name}.qcow2', folder / f'{name}.json'
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        while chunk := stream.read(1 << 22):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def clone(source, destination):
+    """Copy-on-write clone where supported; never overwrite an existing file."""
+    if destination.exists() or destination.is_symlink():
+        raise RuntimeError(f'Refusing to overwrite {destination.name}')
+    subprocess.run(['cp', '--reflink=auto', '--sparse=always', '--no-dereference',
+                    '--', str(source), str(destination)], check=True)
+
+
+def require_stopped():
+    if is_running():
+        raise RuntimeError('Stop the VM and wait for QEMU to exit before copying its disk')
+
+
+def backup(name):
+    require_stopped()
+    disk, manifest = backup_paths(name)
+    folder = backup_dir()
+    folder.mkdir(mode=0o700, exist_ok=True)
+    if folder.is_symlink() or folder.stat().st_uid != os.getuid():
+        raise RuntimeError('Backup directory is not owned by this account')
+    source = RUN / 'guest.qcow2'
+    if manifest.exists():
+        raise RuntimeError(f'Backup {name} already exists')
+    clone(source, disk)
+    expected, actual = sha256_file(source), sha256_file(disk)
+    if expected != actual:
+        disk.unlink()
+        raise RuntimeError('Backup verification failed; partial copy removed')
+    record = {'name': name, 'sha256': actual, 'size': disk.stat().st_size,
+              'created': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+              'profile': 'kvm' if USE_TLS else 'default'}
+    with open(manifest, 'x') as stream:
+        json.dump(record, stream, indent=2)
+    print(json.dumps(record, indent=2))
+
+
+def restore(name):
+    require_stopped()
+    disk, manifest = backup_paths(name)
+    if not manifest.is_file() or not disk.is_file() or disk.is_symlink():
+        raise RuntimeError(f'No complete backup named {name}')
+    record = json.loads(manifest.read_text())
+    if sha256_file(disk) != record['sha256']:
+        raise RuntimeError(f'Backup {name} does not match its recorded hash; not restoring')
+    target = RUN / 'guest.qcow2'
+    staging = RUN / 'guest.qcow2.restore'
+    if staging.exists():
+        staging.unlink()
+    clone(disk, staging)
+    if sha256_file(staging) != record['sha256']:
+        staging.unlink()
+        raise RuntimeError('Restored copy failed verification; working disk unchanged')
+    os.replace(staging, target)
+    print(f'Restored {name} ({record["sha256"]}) to the working disk.')
+
+
+def list_backups():
+    folder = backup_dir()
+    records = []
+    for manifest in sorted(folder.glob('*.json')) if folder.is_dir() else []:
+        records.append(json.loads(manifest.read_text()))
+    print(json.dumps(records, indent=2))
+
+
 def start(accelerator, show=False):
     kvm_available = os.access('/dev/kvm', os.R_OK | os.W_OK)
     if accelerator == 'auto':
@@ -63,14 +162,10 @@ def start(accelerator, show=False):
         if not path.is_file():
             raise RuntimeError('VM has not been prepared: missing ' + str(path))
     path = RUN / 'qmp.sock'
-    if USE_TLS or path.exists():
-        try:
-            qmp('query-status')
-        except ConnectionRefusedError:
-            if not USE_TLS:
-                path.unlink()
-        else:
-            raise RuntimeError('VM is already running')
+    if is_running():
+        raise RuntimeError('VM is already running')
+    if not USE_TLS and path.exists():
+        path.unlink()
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(SEED))
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -81,7 +176,8 @@ def start(accelerator, show=False):
             '-netdev', f'user,id=network0,hostfwd=tcp:127.0.0.1:{SSH_PORT}-:22',
             '-device', 'virtio-net-pci,netdev=network0', '-device', 'virtio-vga',
             '-device', 'virtio-rng-pci', '-display', 'gtk,gl=off' if show else 'none', '-serial', f'file:{RUN}/serial.log',
-            '-smbios', f'type=1,serial=ds=nocloud;s=http://10.0.2.2:{port}/', '-no-reboot']
+            '-smbios', f'type=1,serial=ds=nocloud;s=http://10.0.2.2:{port}/']
+    # A guest reboot resets in place; QEMU exits only on guest poweroff or quit.
     if USE_TLS:
         args += ['-object', f'tls-creds-x509,id=console-tls,endpoint=server,dir={RUN}/tls,verify-peer=on',
                  '-chardev', f'socket,id=console,host=127.0.0.1,port={QMP_PORT},server=on,wait=off,tls-creds=console-tls',
@@ -130,7 +226,7 @@ def main():
                         help='Start mode; auto uses accessible KVM, otherwise software emulation')
     parser.add_argument('--show', action='store_true', help='Show the guest in a QEMU window')
     parser.add_argument('--profile', choices=('default', 'kvm'), default='default')
-    parser.add_argument('action', choices=('start', 'status', 'ssh', 'screenshot', 'stop'))
+    parser.add_argument('action', choices=('start', 'status', 'ssh', 'screenshot', 'stop', 'backup', 'restore', 'backups'))
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.profile == 'kvm':
@@ -142,6 +238,14 @@ def main():
         parser.error('Private VM state directory is missing or not owned by this account')
     if args.action == 'start':
         return start(args.accelerator, args.show)
+    if args.action in ('backup', 'restore'):
+        if len(args.command) != 1:
+            parser.error(f'{args.action} requires exactly one backup name')
+        (backup if args.action == 'backup' else restore)(args.command[0])
+        return 0
+    if args.action == 'backups':
+        list_backups()
+        return 0
     if args.action == 'ssh':
         return subprocess.call(['ssh', '-F', '/dev/null', '-i', str(ROOT / 'keys/id_ed25519'),
             '-p', str(SSH_PORT), '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
