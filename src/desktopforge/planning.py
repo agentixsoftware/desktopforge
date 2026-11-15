@@ -8,6 +8,7 @@ from .session_layout import session_layout_preview
 from .operations import PackageProposal, SessionProposal, operation_preview, order_operations
 from .errors import RecipeError
 from .install_records import installation_for
+from .rendering import rendering_blocker
 from .recipes import (COMPOSITORS, DISTRIBUTIONS, SHELLS, Recipe,
                       load_bundled_recipes, resolve_compatibility)
 
@@ -47,6 +48,9 @@ def build_plan(inventory: dict, compositor: str, shell: str,
         # DesktopForge's own installation: recognize it instead of proposing a new ID.
         session_id = installed["session"]["id"]
     blockers = ["No validated installation recipe is available."]
+    render_problem = rendering_blocker(inventory.get("rendering"), compositor)
+    if render_problem:
+        blockers.append(render_problem)
     blockers.extend(resolution["reasons"])
     blockers.extend(preflight["blockers"])
     matched = [recipe for recipe in recipes if recipe.id in resolution["recipe_ids"]]
@@ -80,9 +84,12 @@ def build_plan(inventory: dict, compositor: str, shell: str,
         if any(isinstance(op, SessionProposal) for op in recipe.operations):
             blockers.append("Session template, launcher integration and filesystem conflicts have not been validated.")
     status_value = "blocked"
+    warnings = []
     if installed is not None:
         if installed["status"] == "intact":
             status_value, blockers, operations, session_configuration = "installed", [], [], None
+            if render_problem:
+                warnings.append(render_problem)
         else:
             problems = [f"{f['path']} is {f['status']}" for f in installed["files"] if f["status"] != "intact"]
             problems += [f"package {p['name']} is {p['status']}" for p in
@@ -97,6 +104,7 @@ def build_plan(inventory: dict, compositor: str, shell: str,
         "dry_run": True,
         "status": status_value,
         "existing_installation": installed,
+        "warnings": warnings,
         "target": {"distribution": distro,
                    "version_id": inventory["distribution"]["version_id"],
                    "compositor": compositor, "shell": shell},

@@ -47,3 +47,27 @@ re-apply a recipe with a completed record.
 Package status uses the inventory's tracked RPM names; dependencies outside
 that list are recorded but not yet re-verified. Repair, removal and
 `AccountsService` default-session reset are not implemented yet.
+
+## Rendering preflight
+
+`src/desktopforge/helper/gpuprobe.py` opens each DRM render node through GBM,
+initializes EGL on it the way Niri does, and reports whether the EGL device is
+a software device (`EGL_MESA_device_software`) together with `GL_RENDERER`.
+Either software signal classifies a node as software. Callers run it as a
+separate process with a 15-second timeout and a clean environment.
+`LIBGL_ALWAYS_SOFTWARE` does not change the GBM path, and other overrides are
+not passed. Failures report `unknown`, never `hardware`.
+
+- Inventory (schema 6) has `rendering`: `hardware`, `software-only`, `none` or `unknown`.
+- Planner: Niri combinations are blocked unless rendering is `hardware`. No
+  claim is made for other compositors until verified. An intact installation
+  on such a system stays `installed` but carries a warning.
+- Lab helper: recipes with `requires_hardware_rendering` run the probe as root
+  in a transient unit (the sandbox has no `/dev/dri`). Anything but `hardware`
+  blocks the plan, and the result is bound into the plan hash.
+- GUI: a "Graphics" line in the system panel.
+
+Observed: the virgl guest reports `hardware`, with renderer `virgl (Mesa
+Intel(R) Iris(R) Xe Graphics (ADL GT2))`; the reference laptop reports
+`hardware` (Intel Iris Xe). The software-only case on a non-virgl guest is
+covered by unit tests and still needs a VM run.

@@ -62,7 +62,8 @@ RECIPES = {
             'Exec': '/usr/bin/gnome-session', 'TryExec': '/usr/bin/gnome-session',
             'Type': 'Application', 'DesktopNames': 'GNOME'}}]},
     'fedora45-niri-noctalia-lab': {'revision': 2, 'signer': FEDORA45_KEY_ID,
-                                   'target': {'compositor': 'niri', 'shell': 'noctalia'}, 'operations': [
+                                   'target': {'compositor': 'niri', 'shell': 'noctalia'},
+                                   'requires_hardware_rendering': True, 'operations': [
         {'op': 'install_packages', 'packages': ['niri', 'noctalia'], 'repositories': ['fedora', 'updates']},
         {'op': 'create_file', 'target': 'session-config', 'name': 'niri-noctalia.kdl', 'mode': 0o644,
          'template': 'niri-noctalia.kdl'},
@@ -112,7 +113,7 @@ def action_for(recipe_id):
 
 
 def build_plan(recipe_id, current, session_names, render, session_filename,
-               resolve=None, templates=None, installed=()):
+               resolve=None, templates=None, installed=(), rendering=None):
     """Plan for a built-in recipe, or blockers. Content comes only from RECIPES.
 
     current: evidence records per target. session_names: existing session file ->
@@ -125,6 +126,14 @@ def build_plan(recipe_id, current, session_names, render, session_filename,
     existing = {target: {r['name'] for r in current.get(target, [])} for target in TARGETS}
     taken = {name.casefold() for name in session_names.values() if name}
     blockers, operations = [], []
+    render_status = None
+    if recipe.get('requires_hardware_rendering'):
+        probe = rendering() if rendering else {'status': 'unknown'}
+        render_status = probe.get('status', 'unknown')
+        renderers = ', '.join(n.get('renderer') or '?' for n in probe.get('nodes', [])) or 'none reported'
+        if render_status != 'hardware':
+            blockers.append(f'Hardware-accelerated graphics required (Niri refuses software rendering); '
+                            f'probe result: {render_status} ({renderers}).')
     for record in installed:
         if record['recipe']['id'] == recipe_id and record['state'] == 'completed':
             blockers.append(f'Already installed by DesktopForge (install {record["install_id"]}, '
@@ -158,6 +167,8 @@ def build_plan(recipe_id, current, session_names, render, session_filename,
             'targets': TARGETS, 'operations': operations}
     if 'signer' in recipe:
         plan['signer'] = recipe['signer']
+    if render_status is not None:
+        plan['rendering'] = render_status  # bound into the plan hash
     return plan, blockers
 
 
@@ -246,6 +257,20 @@ def runner(argv):  # pragma: no cover - VM only
     return run_root(argv)
 
 
+def probe_rendering():  # pragma: no cover - VM only
+    """The shared GPU probe, as root outside the sandbox (which has no /dev/dri)."""
+    code, output = run_root(['/usr/bin/env', '-i', 'PATH=/usr/bin', 'MESA_SHADER_CACHE_DISABLE=true',
+                             '/usr/bin/python3', '-I', CORE_PATH + '/desktopforge_helper/gpuprobe.py'])
+    try:
+        data = json.loads(output.strip().splitlines()[-1]) if code == 0 and output.strip() else {}
+    except ValueError:
+        data = {}
+    if data.get('status') not in ('hardware', 'software-only', 'none', 'unknown'):
+        return {'status': 'unknown', 'nodes': []}
+    return {'status': data['status'], 'nodes': [
+        {'renderer': str(n.get('renderer'))[:200]} for n in data.get('nodes', [])[:8] if isinstance(n, dict)]}
+
+
 def validate_niri(_dir_fd, name):  # pragma: no cover - VM only
     path = f'{SESSION_CONFIG}/{name}'
     result = subprocess.run(['/usr/bin/niri', 'validate', '--config', path], stdin=subprocess.DEVNULL,
@@ -328,7 +353,7 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                     pass  # an unreadable record does not unlock anything; evidence still covers it
         plan, blockers = build_plan(recipe_id, current, names, sessions.render, sessions.session_filename,
                                     resolve=lambda p, r: pkgtx.resolve(p, r, runner), templates=templates,
-                                    installed=installed)
+                                    installed=installed, rendering=probe_rendering)
         return current, plan, blockers
 
     def watch_sender(sender):

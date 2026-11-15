@@ -202,3 +202,13 @@ def test_cli_exits_zero_for_an_intact_installation(monkeypatch, inventory, capsy
     assert 'plan: installed' in out and f'Installed by DesktopForge: Niri + Noctalia (DesktopForge) (install {INSTALL_ID}' in out
     monkeypatch.setattr(cli, 'detect_system', lambda: with_installation(inventory, 'modified'))
     assert cli.main(['plan', '--compositor', 'niri', '--shell', 'noctalia']) == 1
+
+
+def test_installed_but_cannot_render_is_installed_with_a_warning(inventory):
+    inv = with_installation(inventory, 'intact')
+    inv['rendering'] = {'status': 'software-only', 'nodes': [{'renderer': 'llvmpipe (LLVM 21)'}]}
+    plan = build_plan(inv, 'niri', 'noctalia')
+    assert plan['status'] == 'installed' and plan['blockers'] == []
+    assert len(plan['warnings']) == 1 and 'software rendering' in plan['warnings'][0]
+    inv['rendering'] = {'status': 'hardware', 'nodes': []}
+    assert build_plan(inv, 'niri', 'noctalia')['warnings'] == []

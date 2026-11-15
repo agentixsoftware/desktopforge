@@ -23,9 +23,12 @@ TEMPLATES = {'niri-noctalia.kdl': (LAB / 'templates/niri-noctalia.kdl').read_tex
 RESOLVED = [{'name': 'niri', 'arch': 'x86_64', 'evr': '0:26.04-2.fc45', 'repo': 'fedora'}]
 
 
-def plan(helper, recipe, current=EMPTY, names=None, resolve=lambda p, r: (RESOLVED, [])):
+HARDWARE = lambda: {'status': 'hardware', 'nodes': [{'renderer': 'virgl (Mesa Intel(R) Iris(R) Xe Graphics)'}]}
+
+
+def plan(helper, recipe, current=EMPTY, names=None, resolve=lambda p, r: (RESOLVED, []), rendering=HARDWARE):
     return helper['build_plan'](recipe, current, names or {}, sessions.render, sessions.session_filename,
-                                resolve=resolve, templates=TEMPLATES)
+                                resolve=resolve, templates=TEMPLATES, rendering=rendering)
 
 
 @pytest.mark.parametrize('recipe', ['', 'LAB-SYNTHETIC-MARKER', '../etc', 'lab-synthetic-marker\n',
@@ -277,5 +280,32 @@ def test_recorded_installation_blocks_reapply(helper):
                   'install_id': 'e' * 32, 'recorded_at': '2026-11-15T08:40:00Z'}]
     _, blockers = helper['build_plan']('fedora45-niri-noctalia-lab', EMPTY, {}, sessions.render,
                                        sessions.session_filename, resolve=lambda p, r: ([], []),
-                                       templates=TEMPLATES, installed=installed)
+                                       templates=TEMPLATES, installed=installed, rendering=HARDWARE)
     assert blockers == [f'Already installed by DesktopForge (install {"e" * 32}, 2026-11-15T08:40:00Z); nothing to do.']
+
+
+
+@pytest.mark.parametrize('probe, fragment', [
+    ({'status': 'software-only', 'nodes': [{'renderer': 'llvmpipe (LLVM 21.1.0)'}]}, 'software-only (llvmpipe'),
+    ({'status': 'none', 'nodes': []}, 'none (none reported)'),
+    ({'status': 'unknown', 'nodes': []}, 'unknown'),
+])
+def test_niri_recipe_blocked_without_hardware_rendering(helper, probe, fragment):
+    _, blockers = plan(helper, 'fedora45-niri-noctalia-lab', rendering=lambda: probe)
+    assert len(blockers) == 1 and blockers[0].startswith('Hardware-accelerated graphics required')
+    assert fragment in blockers[0]
+
+
+def test_missing_probe_is_treated_as_unknown(helper):
+    _, blockers = plan(helper, 'fedora45-niri-noctalia-lab', rendering=None)
+    assert 'probe result: unknown' in blockers[0]
+
+
+def test_rendering_result_is_bound_into_the_plan(helper):
+    from desktopforge.helper import executor
+    good, _ = plan(helper, 'fedora45-niri-noctalia-lab')
+    assert good['rendering'] == 'hardware'
+    lab, _ = plan(helper, 'lab-session-gnome', rendering=lambda: {'status': 'software-only', 'nodes': []})
+    assert 'rendering' not in lab  # recipes that do not need it are unaffected
+    bad, _ = plan(helper, 'fedora45-niri-noctalia-lab', rendering=lambda: {'status': 'software-only', 'nodes': []})
+    assert executor.plan_hash(good) != executor.plan_hash(bad)

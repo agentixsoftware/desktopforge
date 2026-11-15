@@ -47,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
             if existing:
                 print(f"Installed by DesktopForge: {existing['session']['name']} "
                       f"(install {existing['install_id']}, {existing['recorded_at']}, {existing['status']})")
+            for warning in result.get("warnings", []):
+                print(f"Warning: {warning}")
             for finding in result.get("preflight", {}).get("findings", []):
                 print(f"Review: {finding['path']}: {finding['reason']}")
             layout = result.get("session_configuration_preview")

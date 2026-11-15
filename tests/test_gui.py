@@ -347,13 +347,37 @@ def test_gui_shows_an_intact_desktopforge_installation(app, inventory):
     summary = install_records.summarize(make_record(), Path('/nonexistent'), PACKAGES)
     summary['status'] = 'intact'
     installed['desktopforge_installations'] = {'installations': [summary]}
+    installed['rendering'] = {'status': 'hardware', 'nodes': [{'renderer': 'virgl'}]}
     widget = DesktopForgeWindow(detector=lambda: installed, auto_refresh=False)
     try:
         scan(widget)
         assert widget.plan['status'] == 'installed'
         assert widget.plan_status.text() == 'Installed by DesktopForge'
+        installed['rendering'] = {'status': 'software-only', 'nodes': [{'renderer': 'llvmpipe'}]}
+        scan(widget)
+        assert widget.plan_status.text() == 'Installed by DesktopForge · warning'
+        assert 'software rendering' in widget.plan_status.toolTip()
         assert 'Niri + Noctalia (DesktopForge)' in widget.plan_summary.text()
         assert widget.operations.rowCount() == 0 and not widget.install_button.isEnabled()
+    finally:
+        if widget._worker is not None:
+            widget._worker.wait(5000)
+        widget.close()
+        widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()
+
+
+def test_gui_shows_graphics_capability(app, inventory):
+    shown = deepcopy(inventory)
+    shown['rendering'] = {'status': 'software-only', 'nodes': [
+        {'node': '/dev/dri/renderD128', 'renderer': 'llvmpipe (LLVM 21.1.0)', 'renderer_class': 'software',
+         'device_software': True}]}
+    widget = DesktopForgeWindow(detector=lambda: shown, auto_refresh=False)
+    try:
+        scan(widget)
+        assert widget.facts['graphics'].text() == 'Software rendering only · llvmpipe (LLVM 21.1.0)'
+        assert any('software rendering' in b for b in widget.plan['blockers'])
     finally:
         if widget._worker is not None:
             widget._worker.wait(5000)

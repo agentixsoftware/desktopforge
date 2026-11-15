@@ -331,7 +331,8 @@ def test_plan_hash_is_canonical():
 # ---- packaging boundary ---------------------------------------------------------
 
 def test_core_uses_only_stdlib_and_relative_imports():
-    allowed = {'dataclasses', 'hashlib', 'json', 'os', 'pathlib', 're', 'secrets', 'stat', 'time', 'uuid'}
+    allowed = {'ctypes', 'dataclasses', 'glob', 'hashlib', 'json', 'os', 'pathlib', 're', 'secrets', 'stat',
+               'sys', 'time', 'uuid'}
     for path in HELPER.glob('*.py'):
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Import):

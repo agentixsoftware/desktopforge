@@ -154,7 +154,7 @@ class DesktopForgeWindow(QMainWindow):
         system.addWidget(self.account_label)
         self.facts = {}
         for key, title in (('display_manager', 'Display manager'), ('desktop', 'Current desktop'),
-                           ('active_shell', 'Active shell')):
+                           ('active_shell', 'Active shell'), ('graphics', 'Graphics')):
             system.addWidget(label(title.upper(), 'eyebrow'))
             self.facts[key] = label('Not scanned')
             system.addWidget(self.facts[key])
@@ -342,6 +342,12 @@ class DesktopForgeWindow(QMainWindow):
                     shell_text += '\nService hints: ' + ', '.join(LABELS.get(name, name) for name in hints)
             self.facts['active_shell'].setText(shell_text)
             self.facts['active_shell'].setToolTip(active.get('reason', ''))
+            rendering = inventory.get('rendering') or {}
+            graphics = {'hardware': 'Hardware accelerated', 'software-only': 'Software rendering only',
+                        'none': 'No GPU render device', 'unknown': 'Not confirmed'}.get(rendering.get('status'), 'Not confirmed')
+            renderers = [n['renderer'] for n in rendering.get('nodes', []) if n.get('renderer')]
+            self.facts['graphics'].setText(graphics + (f" · {renderers[0]}" if renderers else ''))
+            self.facts['graphics'].setToolTip(rendering.get('reason', ''))
             for kind in ('wayland', 'x11'):
                 for entry in inventory['sessions'].get(kind, []):
                     self.sessions.addItem(f"{entry['name']}  ·  {kind.upper()}")
@@ -391,7 +397,8 @@ class DesktopForgeWindow(QMainWindow):
                 plan['compatibility'], 'Not validated')
             existing = plan.get('existing_installation')
             if existing and plan['status'] == 'installed':
-                self.plan_status.setText('Installed by DesktopForge')
+                self.plan_status.setText('Installed by DesktopForge' + (' · warning' if plan.get('warnings') else ''))
+                self.plan_status.setToolTip('\n'.join(plan.get('warnings', [])))
                 self.plan_summary.setText(
                     f"{LABELS[compositor]} + {LABELS[shell]} · Login session: {existing['session']['name']} · "
                     f"installed {existing['recorded_at'][:10]}, files verified")
