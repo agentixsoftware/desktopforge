@@ -24,6 +24,14 @@ Later session, 2026-11-14:
   not in the baseline backup.
 - The guest checkout is still a transferred archive, not a Git clone; see
   `~/desktopforge/SOURCE_REVISION` inside the guest.
+- The lab helper (preview/approve/apply, synthetic recipes only) and the reusable
+  helper core in `src/desktopforge/helper/` are implemented and VM-tested; see
+  `docs/LAB_HELPER.md`. Guest services install with `scripts/vm/install-lab
+  {authprobe,helper}` (replaces `install-authprobe`).
+- The user can now watch the VM: they launched it from their `ryoku` terminal with
+  `--show`, and the agent drives it over SSH/QMP. If that window is closed, ask
+  them to rerun the documented `--show start` command (or boot headless yourself).
+  Announce before sending keystrokes or triggering Polkit dialogs.
 
 ## 1. Read this first
 

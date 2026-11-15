@@ -128,10 +128,11 @@ def test_service_unit_is_sandboxed_and_runs_installed_copy_isolated():
 
 
 def test_installer_targets_fixed_root_locations_and_checks_guest(probe):
-    installer = runpy.run_path(str(REPO / 'scripts/vm/install-authprobe'))
+    installer = runpy.run_path(str(REPO / 'scripts/vm/install-lab'))
     assert installer['GUEST_HOSTNAME'] == 'desktopforge-fedora45'
-    assert set(installer['FILES']) == {p.name for p in LAB.iterdir()}
-    for destination, mode in installer['FILES'].values():
+    files = installer['COMPONENTS']['authprobe']['files']
+    assert {Path(source).name for source in files} == {p.name for p in LAB.iterdir()}
+    for destination, mode in files.values():
         assert destination.startswith(('/usr/local/libexec/desktopforge-lab/', '/etc/systemd/system/',
                                        '/etc/dbus-1/system.d/', '/usr/share/dbus-1/system-services/',
                                        '/usr/share/polkit-1/actions/'))

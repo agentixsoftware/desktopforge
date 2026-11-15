@@ -1,0 +1,64 @@
+#!/usr/bin/python3
+"""Unprivileged lab client: preview a synthetic recipe, then apply it.
+
+Runs as the guest user from the checkout. Uses one bus connection for preview
+and apply, because grants are bound to the connection that previewed.
+Test switches deliberately misbehave to exercise the helper's rejections.
+"""
+import argparse
+import json
+import time
+
+from gi.repository import Gio, GLib
+
+DEST, PATH, IFACE = 'org.desktopforge.LabHelper1', '/org/desktopforge/LabHelper1', 'org.desktopforge.LabHelper1'
+
+
+def call(bus, method, args, signature, timeout_ms=10000):
+    try:
+        reply = bus.call_sync(DEST, PATH, IFACE, method, GLib.Variant(signature, args),
+                              GLib.VariantType('(a{sv})'), Gio.DBusCallFlags.NONE, timeout_ms, None)
+        return {'ok': True, **reply.unpack()[0]}
+    except GLib.Error as exc:
+        name = Gio.DBusError.get_remote_error(exc)
+        reason = exc.message.split(f'{name}: ', 1)[-1] if name else exc.message
+        return {'ok': False, 'error': name, 'reason': reason}
+
+
+def emit(step, record):
+    print(json.dumps({'step': step, **record}, sort_keys=True), flush=True)
+
+
+def private_connection():
+    address = Gio.dbus_address_get_for_bus_sync(Gio.BusType.SYSTEM, None)
+    return Gio.DBusConnection.new_for_address_sync(
+        address, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('recipe')
+    parser.add_argument('--preview-only', action='store_true')
+    parser.add_argument('--pause', type=float, default=0, help='seconds between preview and apply')
+    parser.add_argument('--tamper-plan', action='store_true', help='approve a different plan hash')
+    parser.add_argument('--other-connection', action='store_true', help='apply from a second connection')
+    parser.add_argument('--replay', action='store_true', help='apply the same token twice')
+    args = parser.parse_args()
+
+    bus = private_connection()
+    preview = call(bus, 'Preview', (args.recipe,), '(s)')
+    emit('preview', {k: v for k, v in preview.items() if k != 'token'} | {'token_issued': bool(preview.get('token'))})
+    if not preview.get('ok') or preview.get('status') != 'ready' or args.preview_only:
+        return 0
+    if args.pause:
+        time.sleep(args.pause)
+    plan_hash = ('0' * 64) if args.tamper_plan else preview['plan_hash']
+    applier = private_connection() if args.other_connection else bus
+    emit('apply', call(applier, 'Apply', (preview['token'], plan_hash), '(ss)', timeout_ms=300000))
+    if args.replay:
+        emit('replay', call(applier, 'Apply', (preview['token'], plan_hash), '(ss)', timeout_ms=300000))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

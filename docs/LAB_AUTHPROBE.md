@@ -40,9 +40,9 @@ bus alone before any operation is designed on top of it.
 ```bash
 # host, agent checkout: transfer source, then install with guest sudo
 tar -c lab scripts/vm | ./scripts/desktopforge-vm --profile kvm ssh 'tar -x -C ~/desktopforge'
-./scripts/desktopforge-vm --profile kvm ssh 'sudo -n ~/desktopforge/scripts/vm/install-authprobe'
+./scripts/desktopforge-vm --profile kvm ssh 'sudo -n ~/desktopforge/scripts/vm/install-lab authprobe'
 # remove
-./scripts/desktopforge-vm --profile kvm ssh 'sudo -n ~/desktopforge/scripts/vm/install-authprobe --uninstall'
+./scripts/desktopforge-vm --profile kvm ssh 'sudo -n ~/desktopforge/scripts/vm/install-lab authprobe --uninstall'
 ```
 
 The installer refuses to run unless the hostname is the dedicated guest. It copies

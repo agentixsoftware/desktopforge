@@ -4,7 +4,9 @@ Status: design for review and VM experiments. No production helper or policy
 exists, no apply API is implemented, and this proposal does not enable Install.
 A non-mutating [lab authorization probe](LAB_AUTHPROBE.md) has validated bus-derived
 caller identity and Polkit checks (deny, dismiss, approve, no retention, caller
-disconnect) inside the disposable VM only.
+disconnect) inside the disposable VM only. A [lab helper](LAB_HELPER.md) implements
+the request flow below for synthetic recipes: one-time grants, plan/caller
+binding, expiry, post-authorization evidence recheck and journaling.
 
 ## Mechanism and caller identity
 

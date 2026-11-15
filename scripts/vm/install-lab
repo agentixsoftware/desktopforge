@@ -1,0 +1,134 @@
+#!/usr/bin/python3 -Is
+"""Install or remove DesktopForge lab services inside the disposable VM only.
+
+Components: 'authprobe' (non-mutating Polkit probe) and 'helper' (synthetic
+recipe helper plus the helper core). Reviewed files are copied into fixed
+root-owned locations so system services never run from a user-writable
+checkout. Refuses to run outside the dedicated guest. Not a production installer.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+import subprocess
+import tempfile
+
+GUEST_HOSTNAME = 'desktopforge-fedora45'
+REPO = Path(__file__).resolve().parents[2]
+LIBEXEC = '/usr/local/libexec/desktopforge-lab'
+CORE = '/usr/local/lib/desktopforge-lab/python/desktopforge_helper'
+CORE_FILES = ('__init__.py', 'evidence.py', 'executor.py', 'fsops.py', 'grants.py', 'journal.py')
+
+
+def component_files(prefix, bus_name, action, unit):
+    source = f'lab/{prefix}'
+    return {
+        f'{source}/desktopforge-lab-{prefix}': (f'{LIBEXEC}/desktopforge-lab-{prefix}', 0o755),
+        f'{source}/{unit}': (f'/etc/systemd/system/{unit}', 0o644),
+        f'{source}/{bus_name}.conf': (f'/etc/dbus-1/system.d/{bus_name}.conf', 0o644),
+        f'{source}/{bus_name}.service': (f'/usr/share/dbus-1/system-services/{bus_name}.service', 0o644),
+        f'{source}/{action}.policy': (f'/usr/share/polkit-1/actions/{action}.policy', 0o644),
+    }
+
+
+COMPONENTS = {
+    'authprobe': {
+        'unit': 'desktopforge-lab-authprobe.service',
+        'files': component_files('authprobe', 'org.desktopforge.LabAuthProbe1',
+                                 'org.desktopforge.lab.authprobe', 'desktopforge-lab-authprobe.service'),
+        'directories': [],
+    },
+    'helper': {
+        'unit': 'desktopforge-lab-helper.service',
+        'files': {**component_files('helper', 'org.desktopforge.LabHelper1',
+                                    'org.desktopforge.lab.apply-synthetic', 'desktopforge-lab-helper.service'),
+                  **{f'src/desktopforge/helper/{name}': (f'{CORE}/{name}', 0o644) for name in CORE_FILES}},
+        'directories': ['/usr/local/lib/desktopforge-lab'],
+    },
+}
+
+
+def read_reviewed(relative):
+    path = REPO / relative
+    if not stat.S_ISREG(path.lstat().st_mode):
+        raise SystemExit(f'{path} is not a regular file')
+    return path.read_bytes()
+
+
+def ensure_directory(path):
+    for parent in reversed(Path(path).parents):
+        if parent.is_symlink():
+            raise SystemExit(f'Refusing symlinked directory {parent}')
+    if Path(path).is_symlink():
+        raise SystemExit(f'Refusing symlinked directory {path}')
+    if not Path(path).is_dir():
+        # Only directories this installer creates get their owner/mode set.
+        Path(path).mkdir(mode=0o755, parents=True)
+        os.chown(path, 0, 0)
+        os.chmod(path, 0o755)
+
+
+def install(component):
+    records = []
+    for relative, (destination, mode) in component['files'].items():
+        data = read_reviewed(relative)
+        target = Path(destination)
+        ensure_directory(target.parent)
+        if target.is_symlink():
+            raise SystemExit(f'Refusing symlinked destination {target}')
+        fd, temporary = tempfile.mkstemp(dir=target.parent, prefix='.dflab-')
+        try:
+            os.fchown(fd, 0, 0)
+            os.fchmod(fd, mode)
+            os.write(fd, data)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(temporary, target)
+        subprocess.run(['restorecon', str(target)], check=False)
+        records.append({'path': destination, 'mode': oct(mode), 'sha256': hashlib.sha256(data).hexdigest()})
+    return records
+
+
+def uninstall(component):
+    subprocess.run(['systemctl', 'stop', component['unit']], check=False)
+    for destination, _mode in component['files'].values():
+        Path(destination).unlink(missing_ok=True)
+    for directory in [*component['directories'], LIBEXEC]:
+        path = Path(directory)
+        if path.is_dir() and not path.is_symlink() and (directory != LIBEXEC or not any(path.iterdir())):
+            shutil.rmtree(path)
+
+
+def reload():
+    subprocess.run(['systemctl', 'daemon-reload'], check=True)
+    subprocess.run(['busctl', 'call', 'org.freedesktop.DBus', '/org/freedesktop/DBus',
+                    'org.freedesktop.DBus', 'ReloadConfig'], check=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('component', choices=sorted(COMPONENTS))
+    parser.add_argument('--uninstall', action='store_true')
+    args = parser.parse_args()
+    if Path('/etc/hostname').read_text().strip() != GUEST_HOSTNAME:
+        parser.error('Run only in the dedicated disposable VM')
+    if os.geteuid() != 0:
+        parser.error('Run with guest sudo inside the disposable VM')
+    component = COMPONENTS[args.component]
+    if args.uninstall:
+        uninstall(component)
+        reload()
+        print(f'Removed lab component {args.component}.')
+    else:
+        records = install(component)
+        reload()  # before restart, so the new unit definition is used
+        subprocess.run(['systemctl', 'try-restart', component['unit']], check=False)
+        print(json.dumps(records, indent=2))
+
+
+if __name__ == '__main__':
+    main()

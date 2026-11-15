@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- DesktopForge VM-lab helper. Disposable guest only. -->
+<policyconfig>
+  <vendor>DesktopForge lab</vendor>
+  <action id="org.desktopforge.lab.apply-synthetic">
+    <description>Apply a DesktopForge synthetic lab recipe</description>
+    <message>Authentication is required to apply a DesktopForge lab test recipe. It only creates a marker file in /var/lib/desktopforge-lab.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

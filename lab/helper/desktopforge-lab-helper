@@ -1,0 +1,292 @@
+#!/usr/bin/python3 -Is
+"""DesktopForge VM-lab helper: preview/approve/apply for synthetic recipes only.
+
+Exercises the helper core (grants, evidence, journal, handle-based writes) behind
+the system bus and Polkit, inside the disposable VM. Its only possible change is
+creating marker files in /var/lib/desktopforge-lab/markers. It accepts a recipe
+ID from a fixed built-in list, never recipe content, commands, paths or modes.
+It is not the production helper and does not enable DesktopForge installation.
+"""
+import json
+import os
+import re
+import sys
+
+PROTOCOL_VERSION = 1
+BUS_NAME = 'org.desktopforge.LabHelper1'
+OBJECT_PATH = '/org/desktopforge/LabHelper1'
+INTERFACE = BUS_NAME
+ACTION_ID = 'org.desktopforge.lab.apply-synthetic'
+CORE_PATH = '/usr/local/lib/desktopforge-lab/python'
+STATE_DIR = '/var/lib/desktopforge-lab'
+SESSIONS_DIR = '/usr/share/wayland-sessions'
+TARGET = STATE_DIR + '/markers'
+UNIQUE_NAME = re.compile(r':[0-9]{1,10}\.[0-9]{1,10}')
+RECIPE_ID = re.compile(r'[a-z0-9-]{1,64}')
+POLKIT_TIMEOUT_MS = 5 * 60 * 1000
+IDLE_EXIT_SECONDS = 300
+GRANT_TTL_SECONDS = 120
+
+RECIPES = {
+    'lab-synthetic-marker': {'revision': 1, 'operations': [
+        {'op': 'create_file', 'name': 'desktopforge-lab-synthetic.marker', 'mode': 0o644,
+         'content': 'DesktopForge lab synthetic marker. Safe to delete.\n'}]},
+    'lab-synthetic-fail': {'revision': 1, 'operations': [
+        {'op': 'create_file', 'name': 'desktopforge-lab-partial.marker', 'mode': 0o644,
+         'content': 'Left behind by an injected lab failure. Safe to delete.\n'},
+        {'op': 'fail', 'reason': 'injected failure after the first operation'}]},
+}
+
+INTROSPECTION = f"""<node>
+  <interface name="{INTERFACE}">
+    <method name="Preview">
+      <arg name="recipe_id" type="s" direction="in"/>
+      <arg name="result" type="a{{sv}}" direction="out"/>
+    </method>
+    <method name="Apply">
+      <arg name="token" type="s" direction="in"/>
+      <arg name="plan_hash" type="s" direction="in"/>
+      <arg name="result" type="a{{sv}}" direction="out"/>
+    </method>
+  </interface>
+</node>"""
+
+
+class Rejected(Exception):
+    pass
+
+
+def build_plan(recipe_id, marker_evidence):
+    """Plan for a built-in recipe, or blockers. Content comes only from RECIPES."""
+    if not isinstance(recipe_id, str) or not RECIPE_ID.fullmatch(recipe_id) or recipe_id not in RECIPES:
+        raise Rejected('unknown recipe')
+    recipe = RECIPES[recipe_id]
+    existing = {record['name'] for record in marker_evidence}
+    blockers = [f'{op["name"]} already exists; it will not be overwritten'
+                for op in recipe['operations'] if op['op'] == 'create_file' and op['name'] in existing]
+    plan = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': recipe['revision'],
+            'target': TARGET, 'operations': recipe['operations']}
+    return plan, blockers
+
+
+def summarize(plan):
+    """Plain-language list for the client to show before approval."""
+    lines = []
+    for op in plan['operations']:
+        if op['op'] == 'create_file':
+            lines.append(f'Create new file {plan["target"]}/{op["name"]} (mode {op["mode"]:04o})')
+        elif op['op'] == 'fail':
+            lines.append(f'Injected failure: {op["reason"]}')
+    return lines
+
+
+def run_service():  # pragma: no cover - exercised in the disposable VM
+    sys.path.insert(0, CORE_PATH)
+    from desktopforge_helper import evidence, executor, fsops
+    from desktopforge_helper.grants import Caller, GrantRejected, GrantStore
+    from desktopforge_helper.journal import Journal, JournalError
+    from gi.repository import Gio, GLib
+
+    bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    loop = GLib.MainLoop()
+    store = GrantStore(ttl=GRANT_TTL_SECONDS)
+    state = {'applying': False, 'idle': 0, 'watches': {}}
+
+    state_fd = fsops.open_anchor(STATE_DIR, expected_uid=0)
+    markers_fd = fsops.open_child(state_fd, 'markers', expected_uid=0, create_mode=0o755)
+    journal_fd = fsops.open_child(state_fd, 'journal', expected_uid=0, create_mode=0o700)
+
+    def log(message):
+        print(message, flush=True)
+
+    def pack(record):
+        def variant(value):
+            if isinstance(value, bool):
+                return GLib.Variant('b', value)
+            if isinstance(value, int):
+                return GLib.Variant('u', value)
+            if isinstance(value, list) and all(isinstance(v, str) for v in value):
+                return GLib.Variant('as', value)
+            if isinstance(value, str):
+                return GLib.Variant('s', value)
+            return GLib.Variant('s', json.dumps(value, sort_keys=True))
+        return GLib.Variant('(a{sv})', ({k: variant(v) for k, v in record.items()},))
+
+    def idle_expired():
+        state['idle'] = 0
+        if not len(store) and not state['applying']:
+            loop.quit()
+        return False
+
+    def touch():
+        if state['idle']:
+            GLib.source_remove(state['idle'])
+        state['idle'] = GLib.timeout_add_seconds(IDLE_EXIT_SECONDS, idle_expired)
+
+    def reject(invocation, sender, reason):
+        log(f'sender={sender} rejected: {reason}')
+        invocation.return_dbus_error(INTERFACE + '.Error.Rejected', reason)
+        touch()
+
+    def current_evidence():
+        sessions_fd = fsops.open_anchor(SESSIONS_DIR, expected_uid=0)
+        try:
+            return {'sessions': evidence.directory_evidence(sessions_fd),
+                    'markers': evidence.directory_evidence(markers_fd)}
+        finally:
+            os.close(sessions_fd)
+
+    def watch_sender(sender):
+        if sender in state['watches']:
+            return
+
+        def vanished(*_args):
+            store.drop_sender(sender)
+            bus.signal_unsubscribe(state['watches'].pop(sender, 0))
+            log(f'sender={sender} disconnected; its previews were discarded')
+        state['watches'][sender] = bus.signal_subscribe(
+            'org.freedesktop.DBus', 'org.freedesktop.DBus', 'NameOwnerChanged',
+            '/org/freedesktop/DBus', sender, Gio.DBusSignalFlags.NONE, vanished)
+
+    def with_caller(invocation, sender, then):
+        if not UNIQUE_NAME.fullmatch(sender or ''):
+            reject(invocation, sender, 'caller is not identified by a unique bus name')
+            return
+
+        def got(connection, result):
+            try:
+                uid = connection.call_finish(result).unpack()[0]
+            except GLib.Error as exc:
+                reject(invocation, sender, f'caller identity unavailable: {exc.message}')
+                return
+            then(Caller(sender, uid))
+        bus.call('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus',
+                 'GetConnectionUnixUser', GLib.Variant('(s)', (sender,)), GLib.VariantType('(u)'),
+                 Gio.DBusCallFlags.NONE, 5000, None, got)
+
+    def preview(invocation, caller, recipe_id):
+        try:
+            current = current_evidence()
+            plan, blockers = build_plan(recipe_id, current['markers'])
+        except (Rejected, fsops.UnsafePath, OSError) as exc:
+            reject(invocation, caller.sender, str(exc))
+            return
+        record = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': plan['revision'],
+                  'plan_hash': executor.plan_hash(plan), 'summary': summarize(plan),
+                  'blockers': blockers, 'changes_made': False}
+        if blockers:
+            record.update(status='blocked', token='', expires_in=0)
+        else:
+            try:
+                grant = store.issue(caller, recipe_id, plan['revision'], record['plan_hash'],
+                                    evidence.fingerprint(current))
+            except GrantRejected as exc:
+                reject(invocation, caller.sender, exc.reason)
+                return
+            watch_sender(caller.sender)
+            record.update(status='ready', token=grant.token, expires_in=GRANT_TTL_SECONDS)
+        log(f'preview sender={caller.sender} uid={caller.uid} recipe={recipe_id} status={record["status"]}')
+        invocation.return_value(pack(record))
+        touch()
+
+    def apply(invocation, caller, token, plan_hash):
+        if state['applying']:
+            reject(invocation, caller.sender, 'another apply is in progress')
+            return
+        try:
+            grant = store.redeem(token, caller, plan_hash)  # consumed from here on
+        except GrantRejected as exc:
+            reject(invocation, caller.sender, exc.reason)
+            return
+        state['applying'] = True
+        log(f'apply sender={caller.sender} uid={caller.uid} recipe={grant.recipe_id}: authorizing')
+        cancel_id = 'dflab-' + token[:32]
+
+        def vanished(*_args):
+            bus.call('org.freedesktop.PolicyKit1', '/org/freedesktop/PolicyKit1/Authority',
+                     'org.freedesktop.PolicyKit1.Authority', 'CancelCheckAuthorization',
+                     GLib.Variant('(s)', (cancel_id,)), None, Gio.DBusCallFlags.NONE, -1, None, None)
+        gone = bus.signal_subscribe('org.freedesktop.DBus', 'org.freedesktop.DBus', 'NameOwnerChanged',
+                                    '/org/freedesktop/DBus', caller.sender, Gio.DBusSignalFlags.NONE, vanished)
+
+        def finish(record):
+            bus.signal_unsubscribe(gone)
+            state['applying'] = False
+            log(f'apply sender={caller.sender} recipe={grant.recipe_id} outcome={record["outcome"]}')
+            try:
+                invocation.return_value(pack({'protocol': PROTOCOL_VERSION, **record}))
+            except GLib.Error:
+                pass
+            touch()
+
+        def authorized(connection, result):
+            try:
+                is_authorized, _challenge, details = connection.call_finish(result).unpack()[0]
+            except GLib.Error as exc:
+                finish({'outcome': 'not_authorized', 'detail': Gio.DBusError.get_remote_error(exc) or 'error',
+                        'changes_made': False})
+                return
+            if is_authorized is not True:
+                detail = 'dismissed' if details.get('polkit.dismissed') == 'true' else 'denied'
+                finish({'outcome': 'not_authorized', 'detail': detail, 'changes_made': False})
+                return
+            # Fresh preflight after authorization: anything changed -> no changes.
+            try:
+                current = current_evidence()
+                plan, blockers = build_plan(grant.recipe_id, current['markers'])
+            except (Rejected, fsops.UnsafePath, OSError) as exc:
+                finish({'outcome': 'rejected', 'detail': f'preflight failed: {exc}', 'changes_made': False})
+                return
+            if evidence.fingerprint(current) != grant.fingerprint or blockers \
+                    or executor.plan_hash(plan) != grant.plan_hash:
+                finish({'outcome': 'rejected', 'detail': 'system changed since preview; preview again',
+                        'changes_made': False})
+                return
+            try:
+                journal = Journal(journal_fd)
+            except JournalError as exc:
+                finish({'outcome': 'rejected', 'detail': str(exc), 'changes_made': False})
+                return
+            try:
+                journal.record('approved', uid=caller.uid, sender=caller.sender, action=ACTION_ID,
+                               recipe=grant.recipe_id, plan_hash=grant.plan_hash)
+                journal.record('preflight_passed', fingerprint=grant.fingerprint)
+                result = executor.execute(plan, journal, markers_fd)
+            except JournalError as exc:
+                result = {'state': 'failed_recoverable', 'created': [], 'error': str(exc)}
+            finally:
+                journal.close()
+            finish({'outcome': result['state'], 'install_id': journal.install_id,
+                    'created': [f'{TARGET}/{c["name"]}' for c in result['created']],
+                    'recovery': result.get('recovery') or '', 'error': result.get('error', ''),
+                    'rolled_back': False, 'changes_made': bool(result['created'])})
+
+        subject = ('system-bus-name', {'name': GLib.Variant('s', caller.sender)})
+        bus.call('org.freedesktop.PolicyKit1', '/org/freedesktop/PolicyKit1/Authority',
+                 'org.freedesktop.PolicyKit1.Authority', 'CheckAuthorization',
+                 GLib.Variant('((sa{sv})sa{ss}us)', (subject, ACTION_ID, {}, 1, cancel_id)),
+                 GLib.VariantType('((bba{ss}))'), Gio.DBusCallFlags.NONE, POLKIT_TIMEOUT_MS,
+                 None, authorized)
+
+    def method_call(_conn, sender, _path, _iface, method, params, invocation):
+        if method == 'Preview':
+            (recipe_id,) = params.unpack()
+            with_caller(invocation, sender, lambda caller: preview(invocation, caller, recipe_id))
+        elif method == 'Apply':
+            token, plan_hash = params.unpack()
+            with_caller(invocation, sender, lambda caller: apply(invocation, caller, token, plan_hash))
+        else:
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.UnknownMethod', method)
+
+    node = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION)
+    bus.register_object(OBJECT_PATH, node.interfaces[0], method_call, None, None)
+    Gio.bus_own_name_on_connection(bus, BUS_NAME, Gio.BusNameOwnerFlags.DO_NOT_QUEUE,
+                                   None, lambda *_a: loop.quit())
+    touch()
+    log(f'lab helper ready (protocol {PROTOCOL_VERSION}); synthetic recipes only')
+    loop.run()
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(run_service())
