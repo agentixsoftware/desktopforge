@@ -141,6 +141,8 @@ Bugs found and fixed through VM runs:
    - Repair is done (`docs/REPAIR.md`): GUI and helper, VM-verified.
    - `docs/PRODUCTION_PROPOSAL.md` was **accepted** 2026-11-15 (section 9). Work through its section 8 steps;
      step 7 (real hardware) waits for a test machine; the reference laptop stays read-only.
+   - Steps 1–2 done: shared daemon with lab/production profiles (`src/desktopforge/helperd/`), RPM spec
+     (`packaging/`, `docs/PACKAGING.md`). Next: step 3 SELinux, 4 dnf5daemon, 5 evidence file, 6 GUI gates.
 3. **Product decisions already made:**
    - **Option A:** never reset the AccountsService remembered session; report
      failed logins instead.

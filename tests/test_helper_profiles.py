@@ -82,3 +82,15 @@ def test_entry_points_select_their_profile():
 def test_installed_lab_entry_never_loads_from_a_checkout():
     entry = (REPO / 'lab/helper/desktopforge-lab-helper').read_text()
     assert "_here.startswith('/usr/local/libexec/')" in entry
+
+
+
+def test_a_helper_never_removes_or_repairs_installations_another_helper_recorded(prod, lab):
+    from tests.test_install_records import make_record
+    from desktopforge.helper import removal, repair
+    lab_record = make_record()  # producer: desktopforge-lab-helper
+    for name, args in (('build_removal_plan', ({}, {}, None, removal.plan_removal)),
+                       ('build_repair_plan', ({}, {}, None, None, None, repair.plan_repair))):
+        prefix = 'remove-' if name == 'build_removal_plan' else 'repair-'
+        with pytest.raises(prod['Rejected'], match='different helper'):
+            prod[name](prefix + lab_record['install_id'], {lab_record['install_id']: lab_record}, set(), *args)

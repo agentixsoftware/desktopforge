@@ -183,7 +183,7 @@ VMs cannot validate GPUs, hybrid graphics, suspend or real user setups. Proposed
 | Step | Size | Outcome |
 | --- | --- | --- |
 | 1. Production helper: rename and split from the lab helper, approved-recipe loader, protocol version check | Medium | **Done (2026-11-15):** one daemon (`src/desktopforge/helperd/daemon.py`) with `lab` and `production` profiles; production offers approved recipes only (none yet); `Info()` reports protocol, profile and recipes; lab verified in the guest |
-| 2. RPM spec files plus a local mock/COPR build; install in a fresh VM | Medium | Helper installed the right way |
+| 2. RPM spec files plus a local mock/COPR build; install in a fresh VM | Medium | **Done (2026-11-15):** `packaging/desktopforge.spec` built in the SDDM VM; install, production `Info`, refusal of lab recipes, uninstall verified ([PACKAGING.md](PACKAGING.md)); mock/COPR build pending |
 | 3. SELinux policy module (permissive, then enforcing in the VM) | Medium | Confined helper |
 | 4. dnf5daemon backend, keeping the CLI adapter as fallback | Medium | Structured package transactions and progress |
 | 5. Validation evidence file plus a script to produce it from VM runs | Small | Approval becomes checkable |

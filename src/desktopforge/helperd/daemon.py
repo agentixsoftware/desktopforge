@@ -232,6 +232,8 @@ def build_removal_plan(recipe_id, records_by_id, removed_ids, file_states, insta
     if not INSTALL_ID.fullmatch(install_id) or install_id not in records_by_id:
         raise Rejected('unknown installation')
     record = records_by_id[install_id]
+    if record['producer'] != PROFILE['producer']:
+        raise Rejected('installation was recorded by a different helper')
     plan = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': 1, 'targets': TARGETS,
             'install_id': install_id, 'session_name': record['session']['name'], 'operations': [],
             'kept': {'files': [], 'packages': []}}
@@ -249,6 +251,8 @@ def build_repair_plan(recipe_id, records_by_id, removed_ids, file_states, instal
     if not INSTALL_ID.fullmatch(install_id) or install_id not in records_by_id:
         raise Rejected('unknown installation')
     record = records_by_id[install_id]
+    if record['producer'] != PROFILE['producer']:
+        raise Rejected('installation was recorded by a different helper')
     plan = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': 1, 'targets': TARGETS,
             'install_id': install_id, 'session_name': record['session']['name'], 'operations': [],
             'restore': {'files': [], 'packages': []}}
