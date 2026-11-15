@@ -92,5 +92,25 @@ Remaining observations:
 - GDM remembered `desktopforge-niri-noctalia` as the default even though it
   could not display, so a plain login bounces back to GDM until another
   session is chosen. Choosing GNOME explicitly worked and reset the default.
-  Resetting that AccountsService value automatically would change per-user
-  account data and needs a product decision.
+  Decision (option A): DesktopForge does not reset that AccountsService value.
+
+## Launch outcomes (per user)
+
+The launcher runs as the user and cannot write the root-owned install record.
+It therefore keeps its last 10 outcomes (`started`, `no-display`,
+`start-failed`, `refused`) per profile in
+`$XDG_STATE_HOME/desktopforge/launches/<profile>.json` (default
+`~/.local/state/…`). The directory is 0700, the file 0600; the file is
+replaced atomically without following symlinks, and writing is best effort.
+The inventory attaches the latest outcome to the matching installation.
+
+If the last login failed, an intact installation stays `installed` and gains a
+warning: the login did not start, the reason, and that the login screen may
+still preselect the session. The CLI prints it; the GUI shows it in the plan
+summary. A later successful start clears it. A session cannot leave a message
+on GDM's greeter through a supported interface, so the message appears the
+next time DesktopForge is opened, plus in the journal.
+
+Verified on the non-virgl guest: the bounce wrote `no-display`, the CLI and GUI
+showed the warning, and GDM's remembered value changed only when the user
+chose GNOME.

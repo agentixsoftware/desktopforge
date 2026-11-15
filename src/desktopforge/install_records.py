@@ -5,6 +5,7 @@ validated against the shared schema, and every recorded file is re-hashed.
 Nothing here changes the system or trusts a record more than the evidence.
 """
 import hashlib
+import json
 import os
 from pathlib import Path
 import stat
@@ -118,6 +119,61 @@ def inspect_installations(root: Path = Path('/'), package_inventory: dict | None
     result['installations'].sort(key=lambda r: r['recorded_at'])
     result['status'] = 'observed' if result['installations'] else ('none' if not result['issues'] else 'unavailable')
     return result
+
+
+LAUNCH_RESULTS = ('started', 'no-display', 'start-failed', 'refused')
+FAILED_LAUNCHES = ('no-display', 'start-failed', 'refused')
+
+
+def launch_state_directory(environ: dict) -> Path | None:
+    base = environ.get('XDG_STATE_HOME', '')
+    if not Path(base).is_absolute():
+        home = environ.get('HOME', '')
+        if not home or not Path(home).is_absolute():
+            return None
+        base = str(Path(home) / '.local' / 'state')
+    return Path(base) / 'desktopforge' / 'launches'
+
+
+def read_launches(directory: Path | None) -> dict:
+    """Last recorded launch per DesktopForge session ID, from the user's own state files."""
+    latest = {}
+    if directory is None:
+        return latest
+    try:
+        names = sorted(n for n in os.listdir(directory) if n.endswith('.json'))[:16]
+    except OSError:
+        return latest
+    for name in names:
+        try:
+            fd = _open_nofollow(directory / name)
+            with os.fdopen(fd, 'rb') as stream:
+                data = json.loads(stream.read(64 * 1024))
+            session_id = data['session_id']
+            event = data['events'][-1]
+            if not (isinstance(session_id, str) and schema.SESSION_ID.fullmatch(session_id)
+                    and event.get('result') in LAUNCH_RESULTS and isinstance(event.get('time'), str)
+                    and schema.TIMESTAMP.fullmatch(event['time'])):
+                continue
+            latest[session_id] = {'time': event['time'], 'result': event['result'],
+                                  'detail': str(event.get('detail', ''))[:300]}
+        except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
+            continue
+    return latest
+
+
+def attach_launches(installations: dict, launches: dict) -> dict:
+    for installation in installations.get('installations', []):
+        installation['last_launch'] = launches.get(installation['session']['id'])
+    return installations
+
+
+def launch_warning(installation: dict) -> str | None:
+    last = installation.get('last_launch') or {}
+    if last.get('result') not in FAILED_LAUNCHES:
+        return None
+    return (f"The last login to {installation['session']['name']} ({last['time']}) did not start: "
+            f"{last['detail']} The login screen may still preselect this session; choose another session there.")
 
 
 def installation_for(inventory: dict, compositor: str, shell: str) -> dict | None:

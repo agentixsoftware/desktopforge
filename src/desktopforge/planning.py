@@ -7,7 +7,7 @@ from .preflight import preflight_preview
 from .session_layout import session_layout_preview
 from .operations import PackageProposal, SessionProposal, operation_preview, order_operations
 from .errors import RecipeError
-from .install_records import installation_for
+from .install_records import installation_for, launch_warning
 from .rendering import rendering_blocker
 from .recipes import (COMPOSITORS, DISTRIBUTIONS, SHELLS, Recipe,
                       load_bundled_recipes, resolve_compatibility)
@@ -90,6 +90,9 @@ def build_plan(inventory: dict, compositor: str, shell: str,
             status_value, blockers, operations, session_configuration = "installed", [], [], None
             if render_problem:
                 warnings.append(render_problem)
+            failed_launch = launch_warning(installed)
+            if failed_launch:
+                warnings.append(failed_launch)
         else:
             problems = [f"{f['path']} is {f['status']}" for f in installed["files"] if f["status"] != "intact"]
             problems += [f"package {p['name']} is {p['status']}" for p in

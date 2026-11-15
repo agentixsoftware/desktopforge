@@ -25,6 +25,7 @@ import time
 PROFILES = {
     'niri-noctalia': {
         'unit': 'desktopforge-niri-noctalia.service',
+        'session_id': 'desktopforge-niri-noctalia',
         'argv': ['/usr/bin/niri', '--session', '--config', '/etc/desktopforge/sessions/niri-noctalia.kdl'],
         'desktop': 'niri',
         # Variables niri --session imports into the user manager.
@@ -45,6 +46,53 @@ GRAPHICAL = 'graphical-session.target'
 
 class LaunchRefused(Exception):
     pass
+
+
+MAX_EVENTS = 10
+
+
+def state_directory(env):
+    """$XDG_STATE_HOME/desktopforge/launches (absolute paths only), else ~/.local/state/..."""
+    base = env.get('XDG_STATE_HOME', '')
+    if not os.path.isabs(base):
+        home = env.get('HOME', '')
+        if not os.path.isabs(home):
+            return None
+        base = os.path.join(home, '.local', 'state')
+    return os.path.join(base, 'desktopforge', 'launches')
+
+
+def record_launch(env, profile_name, result, detail, now=None):
+    """Keep the last few launch outcomes in a DesktopForge-owned per-user file.
+
+    Best effort: failures to record never affect the session. No symlinks are
+    followed for the file; it is replaced atomically and is private (0600).
+    """
+    directory = state_directory(env)
+    if directory is None or profile_name not in PROFILES:
+        return False
+    path = os.path.join(directory, profile_name + '.json')
+    try:
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            with os.fdopen(fd, 'rb') as stream:
+                events = json.loads(stream.read(64 * 1024)).get('events', [])
+        except (OSError, ValueError, AttributeError):
+            events = []
+        stamp = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))
+        events = [e for e in events if isinstance(e, dict)][-(MAX_EVENTS - 1):]
+        events.append({'time': stamp, 'result': result, 'detail': detail[:300]})
+        data = json.dumps({'schema_version': 1, 'profile': profile_name,
+                           'session_id': PROFILES[profile_name]['session_id'], 'events': events}, indent=1)
+        temporary = f'{path}.{os.getpid()}.tmp'
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(data + '\n')
+        os.replace(temporary, path)
+        return True
+    except OSError:
+        return False
 
 
 def select_environment(env, profile):
@@ -128,8 +176,9 @@ def stale_runtime_files(runtime_dir, display, profile, lock_free=lock_is_free):
 
 class Launcher:
     def __init__(self, profile, env, run=None, sleep=time.sleep, log=None, runtime_dir=None,
-                 lock_free=lock_is_free, remove=os.unlink):
+                 lock_free=lock_is_free, remove=os.unlink, record=None):
         self.profile, self.env = profile, env
+        self.record = record or (lambda result, detail: None)
         self.run = run or self._run
         self.sleep, self.log = sleep, log or (lambda m: print(f'desktopforge-session: {m}', flush=True))
         self.runtime_dir = runtime_dir or env.get('XDG_RUNTIME_DIR', '')
@@ -210,13 +259,17 @@ class Launcher:
         try:
             if code != 0:
                 self.log(f'{unit} failed to start (status {code})')
+                self.record('start-failed', f'{unit} failed to start (status {code})')
                 return 1
             published = self.wait_published(before)
             if not self.has_outputs(published):
                 self.log('the compositor has no usable display (no hardware-accelerated renderer?); '
                          'ending the session so the login screen returns')
+                self.record('no-display', 'The compositor had no usable display (no hardware-accelerated '
+                                          'renderer?); the session was ended.')
                 return 1
             self.log('session ready; published ' + ', '.join(sorted(published)))
+            self.record('started', 'Session started with a display.')
             while not self.stop_requested and self.unit_state() in ('active', 'activating', 'reloading'):
                 self.sleep(1)
             return 0
@@ -270,13 +323,15 @@ def main(argv=None, env=None):
     if len(argv) != 1 or argv[0] not in PROFILES:
         print(f'usage: desktopforge-session {{{",".join(PROFILES)}}}', file=sys.stderr)
         return 2
-    launcher = Launcher(PROFILES[argv[0]], env)
+    launcher = Launcher(PROFILES[argv[0]], env,
+                        record=lambda result, detail: record_launch(env, argv[0], result, detail))
     for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(sig, launcher.request_stop)
     try:
         return launcher.launch()
     except (LaunchRefused, subprocess.SubprocessError, OSError) as exc:
         launcher.log(f'not started: {exc}')
+        record_launch(env, argv[0], 'refused', f'Not started: {exc}')
         return 1
 
 

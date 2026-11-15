@@ -359,6 +359,7 @@ def test_gui_shows_an_intact_desktopforge_installation(app, inventory):
         assert 'software rendering' in widget.plan_status.toolTip()
         assert 'Niri + Noctalia (DesktopForge)' in widget.plan_summary.text()
         assert widget.operations.rowCount() == 0 and not widget.install_button.isEnabled()
+        assert widget.empty_operations.text().startswith('Nothing to do: DesktopForge already installed')
     finally:
         if widget._worker is not None:
             widget._worker.wait(5000)

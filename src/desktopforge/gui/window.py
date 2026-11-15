@@ -401,7 +401,8 @@ class DesktopForgeWindow(QMainWindow):
                 self.plan_status.setToolTip('\n'.join(plan.get('warnings', [])))
                 self.plan_summary.setText(
                     f"{LABELS[compositor]} + {LABELS[shell]} · Login session: {existing['session']['name']} · "
-                    f"installed {existing['recorded_at'][:10]}, files verified")
+                    f"installed {existing['recorded_at'][:10]}, files verified"
+                    + (f" · {plan['warnings'][-1]}" if plan.get('warnings') else ''))
             else:
                 if existing:
                     compatibility = f"DesktopForge install {existing['status']}"
@@ -416,7 +417,11 @@ class DesktopForgeWindow(QMainWindow):
             self.operations.setRowCount(len(operations))
             self.operations.setVisible(bool(operations))
             self.empty_operations.setVisible(not operations)
-            self.empty_operations.setText('No operation recipe is available for this target. Requirements explain what is missing.')
+            if plan['status'] == 'installed':
+                self.empty_operations.setText('Nothing to do: DesktopForge already installed this combination '
+                                              'and its files are unchanged.')
+            else:
+                self.empty_operations.setText('No operation recipe is available for this target. Requirements explain what is missing.')
             names = {'dependency_check': 'Dependency check', 'package_proposal': 'Package proposal', 'session_proposal': 'Session proposal'}
             for index, operation in enumerate(operations):
                 permission = 'Administrator approval' if operation['privilege'] == 'system' else 'No extra permissions'

@@ -212,3 +212,34 @@ def test_installed_but_cannot_render_is_installed_with_a_warning(inventory):
     assert len(plan['warnings']) == 1 and 'software rendering' in plan['warnings'][0]
     inv['rendering'] = {'status': 'hardware', 'nodes': []}
     assert build_plan(inv, 'niri', 'noctalia')['warnings'] == []
+
+
+def test_failed_last_launch_becomes_a_warning_on_an_intact_install(tmp_path, inventory):
+    from desktopforge import loginsession
+    env = {'XDG_STATE_HOME': str(tmp_path / 'state')}
+    loginsession.record_launch(env, 'niri-noctalia', 'no-display', 'The compositor had no usable display.',
+                               now=1794800000)
+    launches = install_records.read_launches(install_records.launch_state_directory(env))
+    assert launches['desktopforge-niri-noctalia']['result'] == 'no-display'
+    inv = with_installation(inventory, 'intact')
+    inv['rendering'] = {'status': 'hardware', 'nodes': []}
+    install_records.attach_launches(inv['desktopforge_installations'], launches)
+    plan = build_plan(inv, 'niri', 'noctalia')
+    assert plan['status'] == 'installed'
+    assert plan['warnings'] == ['The last login to Niri + Noctalia (DesktopForge) (2026-11-16T03:33:20Z) did not '
+                                'start: The compositor had no usable display. The login screen may still preselect '
+                                'this session; choose another session there.']
+    loginsession.record_launch(env, 'niri-noctalia', 'started', 'ok', now=1794800100)
+    install_records.attach_launches(inv['desktopforge_installations'],
+                                    install_records.read_launches(install_records.launch_state_directory(env)))
+    assert build_plan(inv, 'niri', 'noctalia')['warnings'] == []
+
+
+def test_malformed_launch_state_is_ignored(tmp_path):
+    directory = tmp_path / 'desktopforge/launches'
+    directory.mkdir(parents=True)
+    (directory / 'a.json').write_text('{"session_id": "gnome", "events": [{"time": "x", "result": "started"}]}')
+    (directory / 'b.json').write_text('not json')
+    (directory / 'c.json').symlink_to(directory / 'a.json')
+    assert install_records.read_launches(directory) == {}
+    assert install_records.launch_state_directory({'HOME': 'relative'}) is None

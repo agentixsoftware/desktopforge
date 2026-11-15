@@ -216,3 +216,43 @@ def test_only_graphical_session_units_that_failed_during_the_session_are_reset(t
     # The pre-existing failure and an unrelated unit stay visible as failed.
     assert manager.failed == {'old-broken.service', 'backup.service'}
     assert "reset failed graphical-session units: ['xdg-desktop-portal-gnome.service']" in logs
+
+
+# ---- per-user launch outcomes (option A: report, never reset the remembered session) ----
+
+def test_launch_outcomes_are_recorded_privately_and_bounded(tmp_path):
+    env = {'XDG_STATE_HOME': str(tmp_path / 'state')}
+    for i in range(12):
+        assert ls.record_launch(env, 'niri-noctalia', 'no-display', f'attempt {i}', now=1794800000 + i)
+    path = tmp_path / 'state/desktopforge/launches/niri-noctalia.json'
+    data = json.loads(path.read_text())
+    assert data['session_id'] == 'desktopforge-niri-noctalia'
+    assert len(data['events']) == ls.MAX_EVENTS and data['events'][-1]['detail'] == 'attempt 11'
+    assert oct(path.stat().st_mode & 0o777) == '0o600'
+    assert oct((tmp_path / 'state/desktopforge/launches').stat().st_mode & 0o777) == '0o700'
+
+
+def test_launch_record_never_follows_symlinks_or_relative_paths(tmp_path):
+    directory = tmp_path / 'state/desktopforge/launches'
+    directory.mkdir(parents=True)
+    victim = tmp_path / 'victim'
+    victim.write_text('keep')
+    (directory / 'niri-noctalia.json').symlink_to(victim)
+    assert ls.record_launch({'XDG_STATE_HOME': str(tmp_path / 'state')}, 'niri-noctalia', 'started', 'x')
+    assert victim.read_text() == 'keep' and not (directory / 'niri-noctalia.json').is_symlink()
+    assert not ls.record_launch({'XDG_STATE_HOME': 'relative', 'HOME': 'also-relative'}, 'niri-noctalia', 'x', 'y')
+    assert not ls.record_launch({'XDG_STATE_HOME': str(tmp_path)}, '../../evil', 'x', 'y')
+
+
+def test_launcher_reports_outcomes(tmp_path):
+    seen = []
+    for manager, expected in ((FakeManager(), 'started'), (FakeManager(outputs=False), 'no-display'),
+                              (FakeManager(start_status=1), 'start-failed')):
+        lf, _ = launcher(manager, tmp_path, record=lambda result, detail: seen.append(result))
+        lf.launch()
+        assert seen[-1] == expected
+
+
+def test_launcher_never_touches_the_remembered_login_session():
+    source = open(ls.__file__).read()
+    assert 'Accounts' not in source and 'SetSession' not in source

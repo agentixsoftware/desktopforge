@@ -12,7 +12,7 @@ import shutil
 
 from .packages import inspect_packages
 from .repositories import inspect_repositories
-from .install_records import inspect_installations
+from .install_records import attach_launches, inspect_installations, launch_state_directory, read_launches
 from .rendering import inspect_rendering
 from .preflight import inspect_preflight
 from .session_analysis import SHELL_EXECUTABLES, inspect_processes, session_analysis
@@ -171,7 +171,9 @@ def detect_system(
     return {
         "schema_version": 6,
         "package_inventory": package_inventory,
-        "desktopforge_installations": inspect_installations(root, package_inventory),
+        "desktopforge_installations": attach_launches(
+            inspect_installations(root, package_inventory),
+            read_launches(launch_state_directory(env) if root == Path("/") else None)),
         "rendering": inspect_rendering(root),
         "repository_evidence": inspect_repositories(root, distro.get("ID")),
         "command_evidence": command_evidence,
