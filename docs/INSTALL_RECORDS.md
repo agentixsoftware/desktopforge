@@ -67,7 +67,30 @@ not passed. Failures report `unknown`, never `hardware`.
   blocks the plan, and the result is bound into the plan hash.
 - GUI: a "Graphics" line in the system panel.
 
-Observed: the virgl guest reports `hardware`, with renderer `virgl (Mesa
-Intel(R) Iris(R) Xe Graphics (ADL GT2))`; the reference laptop reports
-`hardware` (Intel Iris Xe). The software-only case on a non-virgl guest is
-covered by unit tests and still needs a VM run.
+Observed:
+- The virgl guest reports `hardware`, with renderer `virgl (Mesa Intel(R)
+  Iris(R) Xe Graphics (ADL GT2))`; the reference laptop reports `hardware`
+  (Intel Iris Xe).
+- On the same guest booted without `--gl`, the probe reports `software-only`.
+  Both signals agree: `EGL_MESA_device_software` and `llvmpipe (LLVM 23.1.2)`.
+  The CLI shows the installed session as `installed` with the "would show no
+  picture" warning, a fresh Niri + DMS plan is blocked naming llvmpipe, and the
+  lab helper refuses the Niri recipe.
+
+## Launcher no-display fallback (non-virgl guest)
+
+Choosing "Niri + Noctalia (DesktopForge)" at GDM: niri logged "software EGL
+renderers are skipped". About 5.5 s later the launcher logged "no usable
+display … ending the session so the login screen returns". It then unset its
+five variables, removed its three runtime files and found no failed units,
+and the GDM user list returned. Previously this left a frozen screen.
+
+Remaining observations:
+- `oo7-daemon-login`, the login keyring daemon PAM starts for every graphical
+  login, kept the ended session in `closing`. It is not started by
+  DesktopForge and does not affect the next login.
+- GDM remembered `desktopforge-niri-noctalia` as the default even though it
+  could not display, so a plain login bounces back to GDM until another
+  session is chosen. Choosing GNOME explicitly worked and reset the default.
+  Resetting that AccountsService value automatically would change per-user
+  account data and needs a product decision.
