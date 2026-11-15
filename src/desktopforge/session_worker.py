@@ -32,6 +32,15 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 result = subprocess.run(['/usr/bin/noctalia', '--daemon'], shell=False, timeout=30)
                 status = {'token': args.token, 'ready': result.returncode == 0, 'exit_code': result.returncode}
+                if status['ready']:
+                    # Open a useful surface on this compositor's own IPC socket.
+                    # The inherited WAYLAND_DISPLAY was set by this Niri instance.
+                    try:
+                        opened = subprocess.run(['/usr/bin/noctalia', 'msg', 'panel-toggle', 'launcher'],
+                                                shell=False, timeout=5)
+                        status['launcher_opened'] = opened.returncode == 0
+                    except (OSError, subprocess.TimeoutExpired):
+                        status['launcher_opened'] = False
             except (OSError, subprocess.TimeoutExpired):
                 status = {'token': args.token, 'ready': False, 'exit_code': 1}
             json.dump(status, stream)

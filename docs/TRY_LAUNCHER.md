@@ -21,11 +21,11 @@ to `--check` for structured results.
 
 The second command opens a nested Niri window and starts Noctalia inside it.
 This is a desktop-session trial, not a DesktopForge installer window; that GUI
-has not been implemented. No application window opens automatically. You should
-see Noctalia's bar/panels. Focus the nested window and use **Super+D** or
-**Super+Space** for its application menu, or **Super+Return** for an available
+has not been implemented. The trial opens Noctalia's application menu automatically after initialization; no application is launched until you select one. You should
+see Noctalia's bar/panels. Focus the nested window and use **Alt+D** or
+**Alt+Space** for its application menu, or **Alt+Return** for an available
 terminal. A completely empty window without a bar requires startup diagnostics.
-Quit with **Super+Shift+E** while focused inside the window, close the nested
+Quit with **Alt+Shift+E** while focused inside the window, close the nested
 window, or press **Ctrl+C** in the launching terminal. Keys may be intercepted by
 the parent compositor; Ctrl+C remains available in the separate terminal.
 The starter config is minimal and Wayland-only (Xwayland is disabled); it does
@@ -163,3 +163,47 @@ Noctalia documents [daemon readiness](https://docs.noctalia.dev/noctalia/getting
 [configuration roots](https://docs.noctalia.dev/noctalia/configuration/), and
 [app-launch behavior](https://docs.noctalia.dev/noctalia/v5.4.1/configuration/shell/).
 These sources explain the design, not a passing VM integration result.
+
+## Source helpers and diagnostic handoff
+
+Executable source helpers locate the package using their own path, so they work
+from any current directory without setting PYTHONPATH or installing the package:
+
+- `scripts/desktopforge-session`: the same launcher/check/diagnose entry point.
+- `scripts/desktopforge-diagnostics`: read-only session collection, saving a private
+  JSON report in the checkout's ignored `.desktopforge-reports/` directory.
+
+Use the path to the checkout that your current account can access. On the
+reference laptop, ryoku accesses the shared project through
+`/home/ryoku/vick/Projects/desktopforge`; vick's home is private and must not be
+made public to work around that account boundary. Reports written through the
+existing shared mount can be inspected by the development account without
+changing ryoku's runtime/home permissions. The helper does not switch users,
+invoke sudo, start/stop services or modify desktop configuration. The user still
+has to initiate it in the correct account; the restricted agent cannot invoke a
+process as ryoku on its own.
+
+### Correct nested shortcuts
+
+The generated config explicitly uses `Alt` for Niri's nested `Mod` and `Super` for
+standalone `Mod`. Earlier Super-key instructions for nested mode were wrong.
+Startup messages now name the actual modifier, and the application menu opens
+at initialization so the trial has an immediately useful surface. The behavior
+matches [Niri's modifier documentation](https://github.com/niri-wm/niri/wiki/Configuration:-Key-Bindings).
+
+### Offscreen reproduction (2026-11-14)
+
+A development run used already-installed Weston 15.0.1 with a headless backend,
+private runtime/home/config directories under `/tmp`, and the real installed
+Niri 26.04 / Noctalia 5.4.1 binaries. No shared desktop unit was started and no
+installed desktop configuration was changed. Cleanup targeted only the harness's
+own direct/adopted child processes, using pidfds rather than executable names.
+
+Evidence: Noctalia reported successful initialization; its log recorded a
+created/rendered bar, disabled telemetry, and `panel manager: opened "launcher"`.
+The readiness record reported `ready: true` and `launcher_opened: true`. This
+confirms the fresh-profile startup path reached the shell and app-menu command.
+Screenshot capture and a Niri IPC query timed out under the offscreen backend,
+so this is partial startup evidence, not a passing visual/interactive test or a
+reproduction of the inaccessible ryoku desktop. User-manager unit orchestration
+was not tested by that direct-process harness. No packages were installed.

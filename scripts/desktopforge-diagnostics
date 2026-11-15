@@ -1,0 +1,36 @@
+#!/usr/bin/python3
+"""Collect read-only diagnostics and save a report in the shared checkout."""
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+import time
+
+root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root / 'src'))
+from desktopforge.launcher_runtime import _open_directory
+from desktopforge.session_launcher import diagnose_session
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output-dir', type=Path, default=root / '.desktopforge-reports')
+args = parser.parse_args()
+report = diagnose_session(dict(os.environ))
+args.output_dir.mkdir(mode=0o700, parents=False, exist_ok=True)
+fd = _open_directory(args.output_dir.absolute())
+try:
+    name = f'diagnostics-{time.time_ns()}-{os.getpid()}.json'
+    output = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     0o600, dir_fd=fd)
+    with os.fdopen(output, 'w') as stream:
+        json.dump(report, stream, indent=2, sort_keys=True)
+        stream.write('\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    print(f'Diagnostic report saved: {args.output_dir / name}')
+    print(f"Status: {report['status']}")
+    if report.get('reason'):
+        print(report['reason'])
+    print('No session was started, stopped or reconfigured.')
+finally:
+    os.close(fd)

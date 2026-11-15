@@ -1,0 +1,9 @@
+#!/usr/bin/python3
+"""Run the checkout launcher from any directory, without pip or PYTHONPATH."""
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from desktopforge.session_launcher import main
+
+raise SystemExit(main())

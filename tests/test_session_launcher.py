@@ -455,3 +455,63 @@ def test_diagnostics_entrypoint_never_runs_precheck_or_launcher(monkeypatch, cap
     monkeypatch.setattr('desktopforge.session_launcher.check_environment', lambda *args, **kwargs: pytest.fail('precheck'))
     assert main(['--diagnose']) == 0
     assert json.loads(capsys.readouterr().out)['status'] == 'fixture'
+
+
+def test_nested_modifier_is_explicit_and_app_menu_opens_after_ready(tmp_path, monkeypatch):
+    from desktopforge import session_worker
+    text = config_text(Path('/tmp/fixture'), TOKEN)
+    assert 'mod-key "Super"' in text
+    assert 'mod-key-nested "Alt"' in text
+    calls = []
+    def command(argv, **kwargs):
+        calls.append(argv)
+        return reply()
+    monkeypatch.setattr(session_worker.subprocess, 'run', command)
+    assert session_worker.main([str(tmp_path), TOKEN]) == 0
+    assert calls == [['/usr/bin/noctalia', '--daemon'],
+                     ['/usr/bin/noctalia', 'msg', 'panel-toggle', 'launcher']]
+    assert json.loads((tmp_path / 'shell.json').read_text())['launcher_opened'] is True
+
+
+def test_source_helper_works_outside_checkout_without_pythonpath(tmp_path):
+    import sys
+    script = Path(__file__).parents[1] / 'scripts/desktopforge-session'
+    result = subprocess.run([sys.executable, str(script), '--help'], cwd=tmp_path,
+                            env={'PATH': '/usr/bin:/bin'}, capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0
+    assert '--diagnose' in result.stdout
+    assert 'No module named' not in result.stderr
+
+
+def test_diagnostics_helper_writes_private_report_without_starting_session(tmp_path):
+    import sys
+    script = Path(__file__).parents[1] / 'scripts/desktopforge-diagnostics'
+    output = tmp_path / 'reports'
+    result = subprocess.run([sys.executable, str(script), '--output-dir', str(output)], cwd=tmp_path,
+                            env={'PATH': '/usr/bin:/bin'}, capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0
+    reports = list(output.glob('*.json'))
+    assert len(reports) == 1
+    assert reports[0].stat().st_mode & 0o777 == 0o600
+    assert json.loads(reports[0].read_text())['status'] == 'unavailable'
+    assert not (tmp_path / 'desktopforge').exists()
+
+
+def test_app_menu_ipc_timeout_does_not_misreport_shell_initialization(tmp_path, monkeypatch):
+    from desktopforge import session_worker
+    def run(argv, **kwargs):
+        if 'msg' in argv:
+            raise subprocess.TimeoutExpired(argv, 5)
+        return reply()
+    monkeypatch.setattr(session_worker.subprocess, 'run', run)
+    assert session_worker.main([str(tmp_path), TOKEN]) == 0
+    record = json.loads((tmp_path / 'shell.json').read_text())
+    assert record['ready'] is True and record['launcher_opened'] is False
+
+
+def test_nested_startup_message_names_actual_alt_modifier(env, capsys):
+    assert trial(env, readiness=lambda *args: True, alive=lambda *args: True) == 0
+    text = capsys.readouterr().out
+    assert 'Alt+D: applications' in text
+    assert 'Alt+Return: terminal' in text
+    assert 'Super+D: applications' not in text

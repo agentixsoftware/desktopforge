@@ -41,6 +41,8 @@ def config_text(directory: Path, token: str, terminal: str | None = None) -> str
     terminal_bind = '' if terminal is None else f'Mod+Return {{ spawn {quote(terminal)}; }}'
     return f'''// Generated DesktopForge trial configuration; existing configs are not included.
 input {{
+    mod-key "Super"
+    mod-key-nested "Alt"
     keyboard {{ xkb {{ }}; }}
     touchpad {{ tap; natural-scroll; }}
 }}
@@ -289,7 +291,8 @@ def run_session(env: Mapping[str, str], *, nested: bool, runner: Callable = run_
                         raise LauncherError('Noctalia exited or is outside the owned session; stopping this session.')
                     if not ready:
                         ready = True
-                        print('Noctalia initialized. Super+D: applications; Super+Return: terminal (if available); Super+Shift+E: quit.')
+                        modifier = 'Alt' if nested else 'Super'
+                        print(f'Noctalia initialized. {modifier}+D: applications; {modifier}+Return: terminal (if available); {modifier}+Shift+E: quit.')
                         print('This opens a desktop trial. DesktopForge does not yet have an installer GUI.')
                 if not ready and clock() >= deadline:
                     raise LauncherError('Timed out waiting for Noctalia initialization.')
