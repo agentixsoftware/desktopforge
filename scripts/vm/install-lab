@@ -19,7 +19,8 @@ import tempfile
 GUEST_HOSTNAME = 'desktopforge-fedora45'
 REPO = Path(__file__).resolve().parents[2]
 LIBEXEC = '/usr/local/libexec/desktopforge-lab'
-CORE = '/usr/local/lib/desktopforge-lab/python/desktopforge_helper'
+PYTHON = '/usr/local/lib/desktopforge-lab/python'
+CORE = PYTHON + '/desktopforge/helper'
 CORE_FILES = ('__init__.py', 'evidence.py', 'executor.py', 'fsops.py', 'gpuprobe.py', 'grants.py', 'journal.py',
               'pkgtx.py', 'records.py', 'removal.py', 'repair.py', 'sessions.py')
 
@@ -58,7 +59,11 @@ COMPONENTS = {
                       ('/usr/local/lib/desktopforge-lab/templates/niri-noctalia.kdl', 0o644),
                   'lab/helper/org.desktopforge.lab.register-session.policy':
                       ('/usr/share/polkit-1/actions/org.desktopforge.lab.register-session.policy', 0o644),
-                  **{f'src/desktopforge/helper/{name}': (f'{CORE}/{name}', 0o644) for name in CORE_FILES}},
+                  **{f'src/desktopforge/helper/{name}': (f'{CORE}/{name}', 0o644) for name in CORE_FILES},
+                  # The daemon and its package skeleton: the lab entry point loads only these copies.
+                  'src/desktopforge/__init__.py': (f'{PYTHON}/desktopforge/__init__.py', 0o644),
+                  'src/desktopforge/helperd/__init__.py': (f'{PYTHON}/desktopforge/helperd/__init__.py', 0o644),
+                  'src/desktopforge/helperd/daemon.py': (f'{PYTHON}/desktopforge/helperd/daemon.py', 0o644)},
         'directories': ['/usr/local/lib/desktopforge-lab'],
     },
 }
@@ -86,6 +91,9 @@ def ensure_directory(path):
 
 def install(component):
     records = []
+    stale = Path(PYTHON) / 'desktopforge_helper'  # layout used before the shared daemon
+    if stale.is_dir() and not stale.is_symlink():
+        shutil.rmtree(stale)
     for relative, (destination, mode) in component['files'].items():
         data = read_reviewed(relative)
         target = Path(destination)

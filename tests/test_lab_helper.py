@@ -12,6 +12,7 @@ from desktopforge.helper import sessions
 REPO = Path(__file__).resolve().parents[1]
 EMPTY = {'markers': [], 'sessions': []}
 LAB = REPO / 'lab/helper'
+DAEMON = REPO / 'src/desktopforge/helperd/daemon.py'
 
 
 @pytest.fixture(scope='module')
@@ -105,7 +106,7 @@ def test_interface_inputs_are_only_recipe_id_token_and_plan_hash(helper):
     node = ET.fromstring(helper['INTROSPECTION'])
     inputs = {m.get('name'): [a.get('type') for a in m.findall("arg[@direction='in']")]
               for m in node.findall('./interface/method')}
-    assert inputs == {'Preview': ['s'], 'Apply': ['s', 's']}
+    assert inputs == {'Preview': ['s'], 'Apply': ['s', 's'], 'Info': []}
 
 
 @pytest.mark.parametrize('action_id', ['org.desktopforge.lab.apply-synthetic',
@@ -125,7 +126,7 @@ def test_bus_policy_allows_only_preview_apply_and_introspect():
     allowed = {(a.get('send_interface'), a.get('send_member'))
                for a in root.find("policy[@context='default']").findall('allow')}
     assert allowed == {('org.desktopforge.LabHelper1', 'Preview'), ('org.desktopforge.LabHelper1', 'Apply'),
-                       ('org.freedesktop.DBus.Introspectable', 'Introspect')}
+                       ('org.desktopforge.LabHelper1', 'Info'), ('org.freedesktop.DBus.Introspectable', 'Introspect')}
 
 
 def test_unit_is_sandboxed_with_only_state_and_session_directories_writable():
@@ -143,9 +144,15 @@ def test_unit_is_sandboxed_with_only_state_and_session_directories_writable():
 
 def test_service_imports_core_only_from_root_owned_location(helper):
     assert helper['CORE_PATH'] == '/usr/local/lib/desktopforge-lab/python'
-    tree = ast.parse((LAB / 'desktopforge-lab-helper').read_text())
+    source = DAEMON.read_text()
+    tree = ast.parse(source)
     modules = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
-    assert not any(m.startswith('desktopforge.') or m == 'desktopforge' for m in modules)
+    # The root service imports only the helper core, never GUI/CLI modules...
+    assert {m for m in modules if m.startswith('desktopforge')} == {
+        'desktopforge.helper', 'desktopforge.helper.grants', 'desktopforge.helper.journal'}
+    # ...and in the lab, only after putting the root-owned copy first on sys.path.
+    body = source[source.index('def run_service():'):]
+    assert body.index('sys.path.insert(0, CORE_PATH)') < body.index('from desktopforge.helper import')
 
 
 def test_installer_ships_every_core_module_and_helper_file():
@@ -231,7 +238,7 @@ def test_session_config_passes_niri_validate():
 def test_transient_package_unit_does_not_pass_stdio_to_pid1():
     # Regression: PID1 reset the connection whenever the sandboxed helper ran
     # systemd-run --pipe (any stdio fd). Output now goes to a root-only log file.
-    source = (LAB / 'desktopforge-lab-helper').read_text()
+    source = DAEMON.read_text()
     body = source[source.index('def run_root('):source.index('def runner(')]
     code = body.split('"""', 2)[2]
     assert "'--pipe'" not in code and 'StandardOutput=truncate:' in code
@@ -240,7 +247,7 @@ def test_transient_package_unit_does_not_pass_stdio_to_pid1():
 
 def test_rpm_queries_also_run_outside_the_seccomp_sandbox():
     # Regression: rpm -q calls fchown(), which @privileged filtering kills (SIGSYS).
-    source = (LAB / 'desktopforge-lab-helper').read_text()
+    source = DAEMON.read_text()
     body = source[source.index('def runner('):source.index('def validate_niri(')]
     assert 'return run_root(argv)' in body and 'def run_query' not in source
 

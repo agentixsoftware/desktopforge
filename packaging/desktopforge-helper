@@ -1,0 +1,13 @@
+#!/usr/bin/python3 -Is
+"""DesktopForge privileged helper (production profile).
+
+Installed by the desktopforge-helper RPM as /usr/libexec/desktopforge/desktopforge-helper
+and started by D-Bus activation. Imports only the RPM-installed, root-owned package
+(-I: no user site, no current directory). Offers approved recipes only.
+"""
+import sys
+
+from desktopforge.helperd import daemon  # default profile: production
+
+if __name__ == '__main__':
+    sys.exit(daemon.run_service())
