@@ -201,15 +201,10 @@ def run_root(argv):  # pragma: no cover - VM only
     return result.returncode, output
 
 
-def run_query(argv):  # pragma: no cover - VM only
-    """Read-only rpm queries run inside the sandbox; stdout only."""
-    result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60,
-                            env={'LC_ALL': 'C.UTF-8', 'PATH': '/usr/bin'})
-    return result.returncode, result.stdout
-
-
 def runner(argv):  # pragma: no cover - VM only
-    return run_query(argv) if argv[0] == '/usr/bin/rpm' else run_root(argv)
+    # rpm -q calls fchown(), which this unit's seccomp filter (@privileged) kills
+    # with SIGSYS, so rpm queries run outside the sandbox like DNF does.
+    return run_root(argv)
 
 
 def validate_niri(_dir_fd, name):  # pragma: no cover - VM only

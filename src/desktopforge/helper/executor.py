@@ -28,6 +28,9 @@ class Adapters:
 
 
 def _describe(item):
+    if item.get('kind') == 'packages' and item.get('unknown'):
+        names = ' '.join(item.get('requested', []))
+        return f'package transaction ran but the installed state is unknown; check: rpm -q {names}'.strip()
     if item.get('kind') == 'packages':
         return 'packages ' + ' '.join(f'{p["name"]}-{p["evr"]}' for p in item['packages'])
     return f'{item["target"]}/{item["name"]}'
@@ -94,7 +97,7 @@ def execute(plan, journal, targets, allowed_commands=frozenset(), adapters=None)
                 item = _run(operation, targets, allowed_commands, adapters)
             except (OperationFailed, fsops.Conflict, fsops.UnsafePath, sessions.InvalidEntry,
                     pkgtx.PackageError, OSError, KeyError, AttributeError, TypeError) as exc:
-                if operation.get('op') == 'install_packages' and adapters.runner is not None:
+                if isinstance(exc, pkgtx.TransactionRan):
                     created.extend(_partial_packages(operation, adapters))
                 state = 'failed_manual_recovery' if created else 'failed_recoverable'
                 journal.record('operation_failed', index=index, error=str(exc))
@@ -120,14 +123,17 @@ def execute(plan, journal, targets, allowed_commands=frozenset(), adapters=None)
 
 
 def _partial_packages(operation, adapters):
-    """After a failed transaction, report which reviewed packages are now present."""
+    """After the install command ran and failed, report what is verifiably present.
+
+    If the state cannot be established, report it as unknown; never as unchanged.
+    """
+    names = sorted({r['name'] for r in operation['expected']})
     try:
-        records, _missing = pkgtx.query_installed(sorted({r['name'] for r in operation['expected']}),
-                                                  adapters.runner)
+        records, _missing = pkgtx.query_installed(names, adapters.runner)
     except (pkgtx.PackageError, OSError):
-        return [{'kind': 'packages', 'packages': [], 'unknown': True}]
-    present = [dict(r, repo=r.get('repo')) for row in operation['expected']
-               for r in records.get(row['name'], []) if r['evr'] == row['evr']]
+        return [{'kind': 'packages', 'packages': [], 'unknown': True, 'requested': names}]
+    present = [dict(r, repo=row['repo']) for row in operation['expected']
+               for r in records.get(row['name'], []) if r['evr'] == row['evr'] and r['arch'] == row['arch']]
     return [{'kind': 'packages', 'packages': present}] if present else []
 
 
@@ -135,7 +141,10 @@ def _verify(created, targets, adapters):
     problems = []
     for item in created:
         if item.get('kind') == 'packages':
-            _records, issues = pkgtx.verify_installed(item['packages'], adapters.runner, adapters.signer)
+            try:
+                _records, issues = pkgtx.verify_installed(item['packages'], adapters.runner, adapters.signer)
+            except pkgtx.PackageError as exc:
+                issues = [str(exc)]
             problems += issues
         elif fsops.hash_file(targets[item['target']], item['name']) != item['sha256']:
             problems.append(f'{item["name"]} changed after creation')

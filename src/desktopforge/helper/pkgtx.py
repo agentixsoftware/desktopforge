@@ -26,6 +26,10 @@ class PackageError(Exception):
     pass
 
 
+class TransactionRan(PackageError):
+    """Failure after the install command was started: the system may have changed."""
+
+
 def _check(packages, repositories):
     if not packages or not all(isinstance(p, str) and PACKAGE.fullmatch(p) for p in packages):
         raise PackageError('invalid package name in recipe')
@@ -127,10 +131,18 @@ def parse_rpm_query(text):
 
 
 def query_installed(names, runner):
+    """Installed records for names. Every name must be accounted for, or this raises.
+
+    rpm exits with the number of missing packages, so a non-zero status is only
+    acceptable when exactly that many names are reported missing.
+    """
     if not names or not all(PACKAGE.fullmatch(n) for n in names):
         raise PackageError('invalid package name')
-    _code, output = runner([RPM, '--query', '--queryformat', RPM_QUERY, '--', *names])
-    return parse_rpm_query(output)
+    code, output = runner([RPM, '--query', '--queryformat', RPM_QUERY, '--', *names])
+    records, missing = parse_rpm_query(output)
+    if set(records) | set(missing) != set(names) or set(records) & set(missing) or code != len(missing):
+        raise PackageError(f'incomplete rpm query result (status {code}); installed state unknown')
+    return records, missing
 
 
 def verify_installed(expected, runner, signer):
@@ -159,7 +171,11 @@ def install(packages, repositories, expected, runner, signer):
     if not expected:
         return {}, 'Nothing to do.'
     code, output = runner(dnf5_argv(packages, repositories, simulate=False))
-    records, problems = verify_installed(expected, runner, signer)
+    # From here on the system may have changed; every failure says so.
+    try:
+        records, problems = verify_installed(expected, runner, signer)
+    except PackageError as exc:
+        raise TransactionRan(f'package transaction status {code}; verification failed: {exc}') from None
     if code != 0 or problems:
-        raise PackageError(f'package transaction status {code}; ' + ('; '.join(problems) or 'see journal'))
+        raise TransactionRan(f'package transaction status {code}; ' + ('; '.join(problems) or 'see journal'))
     return records, output

@@ -7,6 +7,7 @@ Test switches deliberately misbehave to exercise the helper's rejections.
 """
 import argparse
 import json
+import sys
 import time
 
 from gi.repository import Gio, GLib
@@ -25,8 +26,31 @@ def call(bus, method, args, signature, timeout_ms=10000):
         return {'ok': False, 'error': name, 'reason': reason}
 
 
+HUMAN = False
+
+
 def emit(step, record):
-    print(json.dumps({'step': step, **record}, sort_keys=True), flush=True)
+    if not HUMAN:
+        print(json.dumps({'step': step, **record}, sort_keys=True), flush=True)
+        return
+    print(f'\n== {step.upper()} ==')
+    if not record.get('ok'):
+        print(f'  Rejected: {record.get("reason")}')
+        return
+    for key in ('status', 'outcome', 'detail', 'authorization'):
+        if record.get(key):
+            print(f'  {key.capitalize()}: {record[key]}')
+    for blocker in record.get('blockers', []):
+        print(f'  BLOCKED: {blocker}')
+    for line in record.get('summary', []):
+        print(f'  - {line}')
+    for item in record.get('created', []):
+        print(f'  + {item}')
+    if record.get('recovery'):
+        print(f'  Recovery: {record["recovery"]}')
+    if record.get('error'):
+        print(f'  Error: {record["error"]}')
+    sys.stdout.flush()
 
 
 def private_connection():
@@ -43,7 +67,10 @@ def main():
     parser.add_argument('--tamper-plan', action='store_true', help='approve a different plan hash')
     parser.add_argument('--other-connection', action='store_true', help='apply from a second connection')
     parser.add_argument('--replay', action='store_true', help='apply the same token twice')
+    parser.add_argument('--human', action='store_true', help='readable output for a person watching')
     args = parser.parse_args()
+    global HUMAN
+    HUMAN = args.human
 
     bus = private_connection()
     preview = call(bus, 'Preview', (args.recipe,), '(s)')

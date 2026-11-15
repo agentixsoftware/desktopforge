@@ -219,7 +219,14 @@ def test_transient_package_unit_does_not_pass_stdio_to_pid1():
     # Regression: PID1 reset the connection whenever the sandboxed helper ran
     # systemd-run --pipe (any stdio fd). Output now goes to a root-only log file.
     source = (LAB / 'desktopforge-lab-helper').read_text()
-    body = source[source.index('def run_root('):source.index('def run_query(')]
+    body = source[source.index('def run_root('):source.index('def runner(')]
     code = body.split('"""', 2)[2]
     assert "'--pipe'" not in code and 'StandardOutput=truncate:' in code
     assert "PACKAGE_LOGS = STATE_DIR + '/package-logs'" in source
+
+
+def test_rpm_queries_also_run_outside_the_seccomp_sandbox():
+    # Regression: rpm -q calls fchown(), which @privileged filtering kills (SIGSYS).
+    source = (LAB / 'desktopforge-lab-helper').read_text()
+    body = source[source.index('def runner('):source.index('def validate_niri(')]
+    assert 'return run_root(argv)' in body and 'def run_query' not in source

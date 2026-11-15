@@ -103,7 +103,8 @@ class FakeSystem:
             else:
                 lines.append(f'{name}\t{row["evr"]}\t{row["arch"]}\t1794800000\t'
                              f'RSA/SHA256, Sat 14 Nov 2026, Key ID {self.installed_key}')
-        return 0, '\n'.join(lines) + '\n'
+        missing = sum(line.startswith('package ') for line in lines)
+        return missing, '\n'.join(lines) + '\n'  # real rpm exits with the missing count
 
 
 EXPECTED, _ = pkgtx.parse_resolution(NO_WARNING)
@@ -208,3 +209,56 @@ def test_missing_validator_fails(dirs):
     result = executor.execute(PLAN, Journal(fds['journal']), {'config': fds['config']},
                               adapters=executor.Adapters(FakeSystem(), KEY))
     assert result['failed_index'] == 2 and 'no validator' in result['error']
+
+
+
+# ---- regressions from the first VM install run --------------------------------------
+
+class KilledRpm(FakeSystem):
+    """rpm killed by seccomp: no output, signal status. DNF itself succeeded."""
+
+    def __call__(self, argv):
+        if argv[0] == pkgtx.RPM:
+            self.calls.append(argv)
+            return -31, ''
+        return super().__call__(argv)
+
+
+def test_empty_rpm_output_is_an_error_not_absence():
+    with pytest.raises(pkgtx.PackageError, match='installed state unknown'):
+        pkgtx.query_installed(['niri'], KilledRpm())
+
+
+@pytest.mark.parametrize('code, output', [
+    (0, ''), (1, ''), (0, 'package niri is not installed\n'),
+    (0, 'niri\t0:1-1\tx86_64\t1\tnone\n'),           # noctalia unaccounted for
+])
+def test_rpm_query_must_account_for_every_name(code, output):
+    with pytest.raises(pkgtx.PackageError):
+        pkgtx.query_installed(['niri', 'noctalia'], lambda argv: (code, output))
+
+
+def test_rpm_missing_count_matches_status():
+    records, missing = pkgtx.query_installed(['niri'], lambda argv: (1, 'package niri is not installed\n'))
+    assert records == {} and missing == ['niri']
+
+
+def test_failure_after_transaction_never_claims_no_changes(dirs):
+    # Regression: DNF installed everything, rpm verification was killed, and
+    # the result said "No changes were made".
+    _base, fds = dirs
+    result = executor.execute(PLAN, Journal(fds['journal']), {'config': fds['config']},
+                              adapters=executor.Adapters(KilledRpm(), KEY))
+    assert result['state'] == 'failed_manual_recovery'
+    assert 'No changes were made' not in result['recovery']
+    assert 'installed state is unknown' in result['recovery'] and 'rpm -q' in result['recovery']
+    assert result['created'][0]['unknown'] is True
+
+
+def test_failure_before_transaction_still_reports_no_changes(dirs):
+    _base, fds = dirs
+    fake = FakeSystem(resolution=NO_WARNING.replace('0:26.04-2.fc45', '0:26.04-9.fc45'))
+    result = executor.execute(PLAN, Journal(fds['journal']), {'config': fds['config']},
+                              adapters=executor.Adapters(fake, KEY))
+    assert result['state'] == 'failed_recoverable' and result['recovery'] == 'No changes were made.'
+    assert not any('--assumeyes' in c for c in fake.calls)
