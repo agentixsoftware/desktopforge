@@ -18,6 +18,7 @@ import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -46,6 +47,23 @@ GRAPHICAL = 'graphical-session.target'
 
 class LaunchRefused(Exception):
     pass
+
+
+JOURNAL_SOCKET = '/run/systemd/journal/socket'
+
+
+def log_message(message, journal_socket=JOURNAL_SOCKET):
+    """Log to the journal directly (display managers differ in where session output
+    goes: GDM forwards it to the journal, SDDM sends stdout to /dev/null), else stderr."""
+    text = 'desktopforge-session: ' + message.replace('\n', ' ')
+    payload = ('SYSLOG_IDENTIFIER=desktopforge-session\nPRIORITY=6\nMESSAGE=' + text + '\n').encode()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+            sock.sendto(payload, journal_socket)
+        return True
+    except OSError:
+        print(text, file=sys.stderr, flush=True)
+        return False
 
 
 MAX_EVENTS = 10
@@ -180,7 +198,7 @@ class Launcher:
         self.profile, self.env = profile, env
         self.record = record or (lambda result, detail: None)
         self.run = run or self._run
-        self.sleep, self.log = sleep, log or (lambda m: print(f'desktopforge-session: {m}', flush=True))
+        self.sleep, self.log = sleep, log or log_message
         self.runtime_dir = runtime_dir or env.get('XDG_RUNTIME_DIR', '')
         self.lock_free, self.remove = lock_free, remove
         self.stop_requested = False

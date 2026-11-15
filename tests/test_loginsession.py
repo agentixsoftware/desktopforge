@@ -201,7 +201,7 @@ def test_launcher_is_self_contained_for_root_owned_install():
     import ast
     from pathlib import Path
     tree = ast.parse(Path(ls.__file__).read_text())
-    stdlib = {'fcntl', 'json', 'os', 're', 'signal', 'subprocess', 'sys', 'time'}
+    stdlib = {'fcntl', 'json', 'os', 're', 'signal', 'socket', 'subprocess', 'sys', 'time'}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             assert {a.name for a in node.names} <= stdlib
@@ -256,3 +256,23 @@ def test_launcher_reports_outcomes(tmp_path):
 def test_launcher_never_touches_the_remembered_login_session():
     source = open(ls.__file__).read()
     assert 'Accounts' not in source and 'SetSession' not in source
+
+
+
+def test_log_goes_to_the_journal_socket(tmp_path):
+    import socket as socketlib
+    path = str(tmp_path / 'journal.sock')
+    server = socketlib.socket(socketlib.AF_UNIX, socketlib.SOCK_DGRAM)
+    server.bind(path)
+    try:
+        assert ls.log_message('session ready\nsecond line', journal_socket=path)
+        fields = dict(line.split('=', 1) for line in server.recv(4096).decode().splitlines())
+        assert fields == {'SYSLOG_IDENTIFIER': 'desktopforge-session', 'PRIORITY': '6',
+                          'MESSAGE': 'desktopforge-session: session ready second line'}
+    finally:
+        server.close()
+
+
+def test_log_falls_back_to_stderr(capsys, tmp_path):
+    assert ls.log_message('hello', journal_socket=str(tmp_path / 'missing.sock')) is False
+    assert 'desktopforge-session: hello' in capsys.readouterr().err

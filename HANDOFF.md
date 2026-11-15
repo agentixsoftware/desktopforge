@@ -137,7 +137,7 @@ Bugs found and fixed through VM runs:
    - GUI lab mode (decision 2a) is done and VM-verified: install and remove from the window via the
      lab helper (`docs/GUI.md`). Production installation stays disabled.
    - DNF network limits are done (`retries=2`, `timeout=20`), and helper `Progress` signals are shown in the GUI and CLI.
-   - SDDM baseline VM.
+   - SDDM baseline VM is done (`docs/SDDM_VM.md`; profile `sddm`, backup `sddm-pre-niri-2026-11-15`).
    - Repair.
 3. **Product decisions already made:**
    - **Option A:** never reset the AccountsService remembered session; report
