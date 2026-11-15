@@ -13,11 +13,14 @@ QT_QPA_PLATFORM=offscreen .venv-gui/bin/python -m pytest -q   # expect: all pass
 ./scripts/desktopforge-vm --profile kvm backups                # four verified backups
 ```
 
-The VM is **shut down** (cleanly) and backed up as `end-of-day-2026-11-15`.
+Guest state after the removal run: restored from `pre-niri-2026-11-14`, then
+install → remove → reinstall → edit config → remove. Niri is not installed; the
+edited `/etc/desktopforge/sessions/niri-noctalia.kdl` was deliberately kept, so a
+reinstall is blocked until it is moved. Records: two installs, two removals.
+The `end-of-day-2026-11-15` backup still has Niri installed.
 
-**Next agreed step:** design and build **removal** (proposal in section 5).
-The user had not yet approved the build when work paused, so present the
-design again and get a go-ahead.
+**Removal is built and VM-verified** (2026-11-15 evening; see `docs/REMOVAL.md`).
+Pick the next item from section 5 with the user.
 
 ## 2. Starting the VM
 
@@ -124,19 +127,8 @@ Bugs found and fixed through VM runs:
 
 ## 5. Next work
 
-1. **Removal (proposed; get approval):**
-   - **Shape:** one VM-only removal operation class with its own Polkit action.
-     The install record is the inventory of what to remove.
-   - **Files:** delete only files that are still unchanged regular files; keep
-     and report edited ones.
-   - **Packages:** remove only packages the install itself added, and only if no
-     later-installed package depends on them. Never remove reused packages.
-   - **Per-user data:** report, never delete: Noctalia state/cache/config, the
-     launch-status file, and the AccountsService remembered session.
-   - **Bookkeeping:** journal before each step and end in a "removed" status
-     while keeping the original record. Partial failure must not claim rollback.
-   - **VM checks:** the session disappears from GDM, GNOME is unaffected, and a
-     reinstall works.
+1. **Removal:** done (`docs/REMOVAL.md`). Follow-ups: GUI presentation,
+   later-installed dependents in the guest, reboot between install and removal.
 2. **Remaining Milestone 2 matrix:**
    - guest reboot with the added session
    - a repeat attempt after a failed install

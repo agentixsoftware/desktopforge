@@ -327,3 +327,25 @@ def test_reinstall_after_removal_is_not_blocked_as_already_installed(helper):
                                        templates={'niri-noctalia.kdl': 'x'}, installed=installed,
                                        rendering=lambda: {'status': 'hardware', 'nodes': []})
     assert not any('Already installed' in b for b in blockers)
+
+
+def test_real_dnf5_removal_output_parses_to_the_seven_recorded_packages():
+    # Captured in the guest: dnf5 remove --assumeno for the packages DesktopForge installed.
+    text = (Path(__file__).parent / 'fixtures/dnf5/remove-niri-noctalia.txt').read_text()
+    names = ['jemalloc', 'libqalculate', 'libseat', 'niri', 'noctalia', 'tomlplusplus', 'xwayland-satellite']
+    rows, blockers = pkgtx.resolve_removal(names, lambda argv: (1, text))
+    assert blockers == [] and [r['name'] for r in rows] == names
+    assert next(r for r in rows if r['name'] == 'niri')['evr'] == '0:26.04-2.fc45'
+
+
+
+def test_reinstall_explains_a_config_kept_by_an_earlier_removal(helper):
+    from desktopforge.helper import sessions
+    current = {'markers': [], 'sessions': [], 'session-config': [{'name': 'niri-noctalia.kdl'}]}
+    _, blockers = helper['build_plan'](make_record()['recipe']['id'], current, {}, sessions.render,
+                                       sessions.session_filename, resolve=lambda p, r: ([], []),
+                                       templates={'niri-noctalia.kdl': 'x'}, installed=[],
+                                       rendering=lambda: {'status': 'hardware', 'nodes': []},
+                                       kept_paths={CONFIG: INSTALL_ID})
+    assert blockers == [f'{CONFIG} was kept when installation {INSTALL_ID} was removed, because it had been edited. '
+                        'It will not be overwritten: move or delete it to reinstall, or keep it as your own copy.']

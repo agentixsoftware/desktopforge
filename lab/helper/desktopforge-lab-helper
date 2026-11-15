@@ -119,7 +119,7 @@ def action_for(recipe_id):
 
 
 def build_plan(recipe_id, current, session_names, render, session_filename,
-               resolve=None, templates=None, installed=(), rendering=None):
+               resolve=None, templates=None, installed=(), rendering=None, kept_paths=None):
     """Plan for a built-in recipe, or blockers. Content comes only from RECIPES.
 
     current: evidence records per target. session_names: existing session file ->
@@ -157,7 +157,13 @@ def build_plan(recipe_id, current, session_names, render, session_filename,
                     raise Rejected('recipe template missing')
                 op['content'] = templates[op.pop('template')]
             if op['name'] in existing[op['target']]:
-                blockers.append(f'{op["name"]} already exists; it will not be overwritten')
+                path = f'{TARGETS[op["target"]]}/{op["name"]}'
+                if path in (kept_paths or {}):
+                    blockers.append(f'{path} was kept when installation {kept_paths[path]} was removed, because it '
+                                    f'had been edited. It will not be overwritten: move or delete it to reinstall, '
+                                    f'or keep it as your own copy.')
+                else:
+                    blockers.append(f'{op["name"]} already exists; it will not be overwritten')
         elif op['op'] == 'register_session':
             render(op['entry'], ALLOWED_COMMANDS)  # invalid templates fail at preview
             filename = session_filename(op['id'])
@@ -421,7 +427,7 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
         return current, sessions.display_names(sessions_fd, current['sessions'])
 
     def load_records():
-        installs, removed = {}, set()
+        installs, removed, kept = {}, set(), {}
         for entry in evidence.directory_evidence(installs_fd):
             if entry.get('type') != 'file' or not entry['name'].endswith('.json'):
                 continue
@@ -431,12 +437,14 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                     item = records.parse_removal(data)
                     if item['state'] == 'completed':
                         removed.add(item['install_id'])
+                    for kept_file in item['kept']['files']:
+                        kept[kept_file['path']] = item['install_id']
                 else:
                     item = records.parse(data)
                     installs[item['install_id']] = item
             except (records.RecordError, fsops.UnsafePath, OSError):
                 pass  # an unreadable record does not unlock anything; evidence still covers it
-        return installs, removed
+        return installs, removed, kept
 
     def file_state(sessions_fd, path, sha256):
         directory, name = os.path.split(path)
@@ -456,7 +464,7 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
 
     def plan_for(recipe_id, sessions_fd):
         current, names = inspect(sessions_fd)
-        installs, removed = load_records()
+        installs, removed, kept = load_records()
         if recipe_id.startswith(REMOVAL_PREFIX):
             install_id = recipe_id[len(REMOVAL_PREFIX):]
             record = installs.get(install_id)
@@ -475,7 +483,7 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
         installed = [dict(r, removed=r['install_id'] in removed) for r in installs.values()]
         plan, blockers = build_plan(recipe_id, current, names, sessions.render, sessions.session_filename,
                                     resolve=lambda p, r: pkgtx.resolve(p, r, runner), templates=templates,
-                                    installed=installed, rendering=probe_rendering)
+                                    installed=installed, rendering=probe_rendering, kept_paths=kept)
         return current, plan, blockers
 
     def watch_sender(sender):
