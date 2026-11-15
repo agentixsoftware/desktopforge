@@ -93,3 +93,20 @@ Track install ID, timestamp, system fingerprint (non-identifying), recipe versio
 
 ## Future manager compatibility
 Treat installation records as durable, versioned state from v0.1. Shared package ownership, user edits, and unmanaged installations must be reconciled before implementing removal/repair.
+
+## Optional agent interface (future)
+A Codex skill may consume the same structured inventory and deterministic plans
+as the GUI and CLI. Detection, compatibility decisions, operation validation,
+execution, and journaling belong in the shared core; the skill must not implement
+a separate installer. No agent integration is currently implemented.
+
+The initial useful scope is maintainer assistance: upstream research, explanation
+of unknown evidence, failure diagnosis, and proposed recipe or test changes.
+Treat upstream content and generated recipes as untrusted input. The core must
+enforce typed recipe constraints and keep unsupported or unverified installations
+blocked regardless of an agent's recommendation.
+
+Later guided execution can call the reviewed core interfaces once available.
+Existing plan approval and Polkit authorization requirements apply, and the
+privileged helper continues to reject arbitrary commands and unrestricted paths.
+An agent cannot promote a recipe to validated support or bypass these boundaries.

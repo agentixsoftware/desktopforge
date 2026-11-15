@@ -61,6 +61,23 @@ Each distro/version/combination is *unsupported* until integration tests pass. D
 - v0.2: More distros, compositors, shells, and tested combinations.
 - v0.3+: Managed updates, repair, removal, shared-dependency tracking, session inventory.
 - Later: Community recipe registry with provenance, signing, reviews, and compatibility telemetry (opt-in only).
+- Later: An optional Codex skill that uses DesktopForge's shared core and CLI for investigation, planning, and guided operation.
+
+## Agent-assisted workflows (future direction)
+The GUI remains the primary interface for beginners. A future Codex skill can
+provide an additional interface to the same inventory, compatibility resolver,
+planner, and approved execution capabilities. Using DesktopForge must not require
+Codex or an agent account.
+
+An earlier development-focused skill may research unfamiliar combinations,
+diagnose failures, and draft recipes and regression tests. Agent-generated recipes
+remain unverified until reviewed and validated against the same test matrix as
+other recipes. Agent suggestions do not establish compatibility.
+
+Any later installation workflow must use the shared execution and authorization
+boundaries, including explicit plan approval, the narrow privileged helper,
+installation records, and recovery guidance. Agent flexibility does not expand the
+helper's allowed operations. This direction adds no agent deliverable to v0.1.
 
 ## Success measures
 - First-install completion rate in disposable test VMs.

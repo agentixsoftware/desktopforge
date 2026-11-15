@@ -35,6 +35,12 @@ Version 0.1 (draft) | 2026-11-14
 
 ## Later
 - Debian support, TUI, managed repair/uninstall/update, additional compositors and shells, signed community recipe registry.
+- Phase in an optional Codex skill over the shared core and CLI. Begin with
+  maintainer research, diagnostics, and draft recipes/tests after the read-only
+  interfaces stabilize; this can precede installation support. Add guided
+  installation only after the helper, approval flow, journal, recovery, and VM
+  validation are ready. Agent-generated recipes require review and the normal
+  compatibility test matrix. This is outside the current milestone's exit criteria.
 
 ## Risk register
 - Third-party installer behavior and changing upstream shell integrations.
