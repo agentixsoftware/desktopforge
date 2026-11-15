@@ -157,3 +157,20 @@ agent cannot screenshot GNOME, so it pressed buttons by accessible name over
 AT-SPI (`lab/tools/atspi-press.py`, GUI launched with
 `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`). It typed the password only after the
 helper journaled "authorizing" (`lab/tools/qmp-sendkeys.py --secret`).
+
+## Production mode
+
+When `desktopforge-helper` (the RPM) is installed, the GUI uses it in
+preference to the lab helper and shows **HELPER INSTALLED**. It offers
+**Install…** only when every gate passes: the helper answers `Info` with a
+matching protocol, it offers an approved recipe whose declared target is the
+selected combination, and the inventory reports hardware rendering. Otherwise
+the footer names the first failing gate, for example "No approved recipe for
+Niri + Noctalia yet." The helper re-checks everything, including the recipe's
+distribution, release and display-manager constraints, at preview and apply.
+**Remove…** and **Repair…** appear only for installations the production
+helper recorded.
+
+Verified with the RPMs from `d34982d` in the SDDM VM: badge, disabled install
+button and the "no approved recipe" explanation (production offers no recipes
+until one is approved).
