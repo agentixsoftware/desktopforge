@@ -108,14 +108,19 @@ Finding: choosing a session at GDM updates the user's remembered default in
 AccountsService (`Session` property). After using the added session, it becomes
 the default for the next login until the user picks another. That is display
 manager behavior, not a DesktopForge write, but recovery guidance for a broken
-added session must account for it. What GDM does when the remembered session
-file has disappeared has not yet been tested.
+added session must account for it.
+
+Stale default (tested): with the remembered session set to the lab entry and its
+file moved away, GDM omitted the entry, preselected GNOME and logged in to
+`GDMSESSION=gnome`. AccountsService kept the stale `desktopforge-lab-gnome`
+value, so if the file returns, it becomes the default again. Removal and
+recovery tooling should reset or at least report that value.
 
 ## Not yet covered
 
 The helper has not yet been tested for caller disconnect during an apply
 dialog; the probe has. Also not tested: locked/inactive sessions, two users,
-concurrent applies from separate users, a remembered default session whose file was removed, session removal (a v0.1 non-goal, needs ownership records), journal-disk-full in the guest, path
+concurrent applies from separate users, session removal (a v0.1 non-goal, needs ownership records), journal-disk-full in the guest, path
 replacement races in the guest (unit-tested only), reboot during apply, and
 SDDM. Real recipe operations (package transactions, session registration) need
 their own operation classes and reviews before any of this approaches production.
