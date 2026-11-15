@@ -1,0 +1,63 @@
+{
+  "schema_version": 2,
+  "id": "fedora45-niri-noctalia",
+  "revision": 1,
+  "status": "unverified",
+  "constraints": {
+    "distribution": "fedora",
+    "versions": ["45"],
+    "compositor": "niri",
+    "shell": "noctalia",
+    "display_managers": ["gdm", "sddm"]
+  },
+  "review": {
+    "sources": [
+      "https://packages.fedoraproject.org/pkgs/niri/niri/",
+      "https://packages.fedoraproject.org/pkgs/noctalia/noctalia/",
+      "https://github.com/niri-wm/niri/wiki/Example-systemd-Setup",
+      "https://docs.noctalia.dev/noctalia/getting-started/installation/",
+      "https://docs.noctalia.dev/noctalia/getting-started/running-the-shell/"
+    ],
+    "blockers": [
+      "Mutable Fedora and enabled official repository provenance must be checked; Atomic installations are outside this recipe's intended scope.",
+      "Noctalia v5 uses the noctalia executable; legacy v4 detection must not authorize reuse or migration.",
+      "An isolated Niri configuration must start Noctalia without modifying the existing user's compositor configuration.",
+      "Existing Niri service drop-ins, shell bootstrap hooks and display-manager session wrappers must be reviewed for cross-session effects.",
+      "NIRI_CONFIG and imported user-manager environment must not leak into a later login session; startup failure and logout cleanup remain untested.",
+      "GDM and SDDM login, shell lifecycle, GPU behavior and preservation of existing sessions require disposable VM validation."
+    ]
+  },
+  "operations": [
+    {
+      "id": "propose-packages",
+      "type": "package_proposal",
+      "depends_on": [],
+      "package_manager": "dnf5",
+      "packages": ["niri", "noctalia"]
+    },
+    {
+      "id": "check-niri",
+      "type": "dependency_check",
+      "depends_on": ["propose-packages"],
+      "executable": "niri"
+    },
+    {
+      "id": "check-niri-session",
+      "type": "dependency_check",
+      "depends_on": ["propose-packages"],
+      "executable": "niri-session"
+    },
+    {
+      "id": "check-noctalia",
+      "type": "dependency_check",
+      "depends_on": ["propose-packages"],
+      "executable": "noctalia"
+    },
+    {
+      "id": "propose-session",
+      "type": "session_proposal",
+      "depends_on": ["check-niri", "check-niri-session", "check-noctalia"],
+      "template": "niri-noctalia-v5"
+    }
+  ]
+}

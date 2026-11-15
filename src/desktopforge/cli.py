@@ -52,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print("No operations proposed.")
             print("Preserve existing sessions, display manager and user configuration.")
+            for source in result.get("recipe_sources", []):
+                print(f"Reference: {source}")
         return 1
     if args.command == "detect":
         result = detect_system()

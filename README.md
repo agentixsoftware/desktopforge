@@ -47,6 +47,7 @@ Apache License 2.0. See [LICENSE](LICENSE). Third-party dependencies and recipes
 ```bash
 PYTHONPATH=src python3 -m desktopforge list
 PYTHONPATH=src python3 -m desktopforge plan --compositor niri --shell ryoku
+PYTHONPATH=src python3 -m desktopforge plan --compositor niri --shell noctalia
 ```
 
 Both commands accept `--json`. The catalog describes target scope, including experimental Ryoku combinations; all entries are unverified for every version. Plans are deterministic for identical inventory inputs, preserve existing sessions and configuration, and contain no executable operations. Version 2 recipes can describe ordered, typed operation proposals; all remain blocked and are never applied. A blocked plan exits with status 1; successful inventory/catalog commands exit with status 0. Session IDs are previews, not filesystem reservations.
@@ -56,3 +57,9 @@ versions and configured display manager. The Fedora 45 + Niri + Ryoku + SDDM
 reference has bundled **unverified metadata only**. Other versions are outside
 that metadata's constraints; this does not establish upstream incompatibility.
 See [recipe schema](docs/RECIPES.md) for the supported format and limitations.
+
+The first concrete package/session preview targets Fedora 45 + Niri + Noctalia v5
+with an existing GDM or SDDM. It proposes packages and a distinct session path,
+shows source references, and stays **blocked** on isolated config, service hooks,
+environment cleanup, package review and VM validation. No installation support is
+claimed. See the [research and validation gates](docs/FEDORA45_NIRI_NOCTALIA_RESEARCH.md).

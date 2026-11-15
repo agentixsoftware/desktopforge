@@ -75,3 +75,12 @@ After pulling, run `PYTHONPATH=src python3 -m pytest -q`, `PYTHONPATH=src python
 
 The terminal fetch subsequently succeeded and exposed six upstream commits. Those
 commits were merged locally, retaining shell correlation and both planner APIs.
+
+## Additive installation research
+
+Read-only inspection of installed RPM ownership, the Niri session wrapper and
+Ryoku's global bootstrap hook informed the first concrete Noctalia preview. These
+observations do not validate an installer or active-session ownership. The
+[research report](FEDORA45_NIRI_NOCTALIA_RESEARCH.md) records package versions,
+upstream sources and remaining VM gates. Ryoku remains metadata-only because an
+additive installation procedure has not been established.

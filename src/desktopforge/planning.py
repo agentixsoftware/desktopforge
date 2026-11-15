@@ -39,11 +39,14 @@ def build_plan(inventory: dict, compositor: str, shell: str,
     matched = [recipe for recipe in recipes if recipe.id in resolution["recipe_ids"]]
     operations = []
     selected_recipe = None
+    recipe_sources = []
     if len(matched) > 1:
         blockers.append("Multiple recipes match; select one explicitly before proposing operations.")
     elif matched:
         recipe = matched[0]
         selected_recipe = {"id": recipe.id, "revision": recipe.revision}
+        recipe_sources = list(recipe.sources)
+        blockers.extend(recipe.review_blockers)
         operations = [operation_preview(op, session_id) for op in order_operations(recipe.operations)]
         if any(isinstance(op, PackageProposal) for op in recipe.operations):
             blockers.append("Package versions, provenance and installed-package reuse have not been validated.")
@@ -67,6 +70,7 @@ def build_plan(inventory: dict, compositor: str, shell: str,
         "preserve": {"display_manager": inventory["display_manager"]["name"],
                      "existing_sessions": sorted(existing), "user_configuration": True},
         "selected_recipe": selected_recipe,
+        "recipe_sources": recipe_sources,
         "executable": False,
         "operations": operations,
         "limitations": ["Executable discovery does not validate compatibility or safe reuse.",

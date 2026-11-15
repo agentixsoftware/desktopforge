@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+from urllib.parse import urlsplit
 
 from .errors import RecipeError
 from .operations import Operation, PackageProposal, parse_operations
@@ -47,6 +48,8 @@ class Recipe:
     # Only unverified metadata is accepted until validation provenance is designed.
     status: str = "unverified"
     operations: tuple[Operation, ...] = ()
+    sources: tuple[str, ...] = ()
+    review_blockers: tuple[str, ...] = ()
 
 
 def parse_recipe(data: object) -> Recipe:
@@ -57,7 +60,11 @@ def parse_recipe(data: object) -> Recipe:
     if type(version) is not int or version not in (1, 2):
         raise RecipeError("Unsupported recipe schema_version")
     expected = {"schema_version", "id", "revision", "status", "constraints"}
-    data = _keys(data, expected | ({"operations"} if version == 2 else set()), "recipe")
+    if version == 2:
+        expected.add("operations")
+        if "review" in data:
+            expected.add("review")
+    data = _keys(data, expected, "recipe")
     if not isinstance(data["id"], str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", data["id"]):
         raise RecipeError("Recipe id must be a lowercase slug")
     if type(data["revision"]) is not int or data["revision"] < 1:
@@ -80,8 +87,24 @@ def parse_recipe(data: object) -> Recipe:
     allowed_managers = ("dnf", "dnf5") if fields["distribution"] == "fedora" else ("pacman",)
     if any(isinstance(op, PackageProposal) and op.package_manager not in allowed_managers for op in operations):
         raise RecipeError("Package manager does not match recipe distribution")
+    sources: tuple[str, ...] = ()
+    review_blockers: tuple[str, ...] = ()
+    if "review" in data:
+        review = _keys(data["review"], {"sources", "blockers"}, "review")
+        sources = tuple(sorted(_strings(review["sources"], "review.sources")))
+        review_blockers = tuple(sorted(_strings(review["blockers"], "review.blockers")))
+        for source in sources:
+            try:
+                url = urlsplit(source)
+                valid = (url.scheme == "https" and bool(url.hostname) and not url.username
+                         and not url.password and not any(char.isspace() for char in source))
+            except ValueError:
+                valid = False
+            if not valid:
+                raise RecipeError("Review sources must be HTTPS URLs without credentials")
     return Recipe(data["id"], data["revision"], Constraints(
-        fields["distribution"], versions, fields["compositor"], fields["shell"], managers), operations=operations)
+        fields["distribution"], versions, fields["compositor"], fields["shell"], managers), operations=operations,
+                  sources=sources, review_blockers=review_blockers)
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict:

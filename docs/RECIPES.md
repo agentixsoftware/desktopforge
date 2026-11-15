@@ -112,4 +112,21 @@ derived privilege, proposed changes and `executable: false`. Plan status remains
 `blocked`, `dry_run: true`, and the CLI exits with code 1. JSON serialization is
 stable for identical inventory and equivalent operation input. The bundled
 Fedora reference remains version 1 with no speculative installation operations;
-version 2 examples are exercised through temporary fixtures.
+synthetic version 2 examples are exercised through temporary fixtures. The bundled
+Fedora 45 Niri/Noctalia recipe now supplies a researched but still unverified
+version 2 preview; see FEDORA45_NIRI_NOCTALIA_RESEARCH.md.
+
+## Optional version 2 review information
+
+Version 2 may include a `review` object with exactly two required fields:
+`sources`, a nonempty list of unique HTTPS URLs without embedded credentials,
+and `blockers`, a nonempty list of unique plain-language review requirements.
+Both lists are sorted when parsed. Unknown review fields and malformed values are
+rejected; version 1 rejects `review` entirely. A recipe can still omit the object,
+which keeps existing version 2 fixtures compatible.
+
+The selected recipe's review blockers are appended to the planner's built-in
+blockers; they cannot remove them or grant support. Source URLs are exposed as
+`recipe_sources` in plan JSON and as references in text output. They are never
+fetched during planning and do not establish signed validation provenance.
+Unmatched or ambiguous recipes contribute no operation proposals or sources.
