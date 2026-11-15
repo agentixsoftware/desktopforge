@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFram
     QMessageBox, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from ..detection import detect_system
-from ..labclient import LabHelperClient, lab_action, repair_action
+from ..labclient import (REPAIR_PREFIX, LabHelperClient, ProductionHelperClient, lab_action,
+                         production_gates, repair_action)
 from ..planning import build_plan
 from ..recipes import COMPOSITORS, SHELLS
 
@@ -127,12 +128,18 @@ class LabWorker(QThread):
 class DesktopForgeWindow(QMainWindow):
     def __init__(self, *, detector: Callable = detect_system, planner: Callable = build_plan,
                  auto_refresh: bool = True, lab_available: Callable = LabHelperClient.available,
-                 lab_client_factory: Callable = LabHelperClient):
+                 lab_client_factory: Callable = LabHelperClient,
+                 production_info: Callable = ProductionHelperClient.info,
+                 production_client_factory: Callable = ProductionHelperClient):
         super().__init__()
         self.detector = detector
         self.planner = planner
         self.lab_available = lab_available
         self.lab_client_factory = lab_client_factory
+        self.production_info_source = production_info
+        self.production_client_factory = production_client_factory
+        self.production_info: dict | None = None
+        self.helper_mode: str | None = None  # None, 'lab' or 'production'
         self.lab_mode = False
         self.lab_request: tuple[str, str] | None = None
         self.repair_request: str | None = None
@@ -358,9 +365,16 @@ class DesktopForgeWindow(QMainWindow):
         if self._closing:
             return
         try:
-            self._set_lab_mode(bool(self.lab_available()))
+            self.production_info = self.production_info_source()
         except Exception:
-            self._set_lab_mode(False)
+            self.production_info = None
+        if self.production_info is not None:
+            self._set_mode('production')
+        else:
+            try:
+                self._set_mode('lab' if self.lab_available() else None)
+            except Exception:
+                self._set_mode(None)
         try:
             distro = inventory['distribution']
             self.distribution_label.setText(distro.get('name') or distro.get('id') or 'Unknown distribution')
@@ -539,6 +553,9 @@ class DesktopForgeWindow(QMainWindow):
 
     def _update_lab_button(self) -> None:
         busy = self._lab_worker is not None and self._lab_worker.isRunning()
+        if self.helper_mode == 'production':
+            self._update_production_button(busy)
+            return
         self.lab_request = lab_action(self.plan, self.lab_mode) if self.plan is not None else None
         self.repair_request = repair_action(self.plan, self.lab_mode)
         self.repair_button.setVisible(self.repair_request is not None)
@@ -552,12 +569,37 @@ class DesktopForgeWindow(QMainWindow):
         self.install_button.setToolTip('Uses the VM-lab helper: you review its preview, then authenticate.')
         self.install_button.setEnabled(not busy)
 
+    def _update_production_button(self, busy: bool) -> None:
+        action, reason = production_gates(self.production_info, self.plan, self.inventory)
+        existing = (self.plan or {}).get('existing_installation') or {}
+        self.repair_request = (REPAIR_PREFIX + existing['install_id']
+                               if action and action[0] == 'remove' and existing.get('status') in ('modified', 'incomplete')
+                               else None)
+        self.repair_button.setText('Repair…')
+        self.repair_button.setVisible(self.repair_request is not None)
+        self.repair_button.setEnabled(self.repair_request is not None and not busy)
+        self.lab_request = action
+        if action is None:
+            self.install_button.setText('Installation unavailable')
+            self.install_button.setEnabled(False)
+            self.footer_note.setText(reason)
+            return
+        self.install_button.setText('Install…' if action[0] == 'install' else 'Remove…')
+        self.install_button.setToolTip('You review the helper\'s preview first, then authenticate.')
+        self.install_button.setEnabled(not busy)
+        self.footer_note.setText('Review the preview, then authenticate. Your existing desktop is not changed.')
+
+    def _set_mode(self, mode: str | None) -> None:
+        self.helper_mode = mode
+        self.lab_mode = mode == 'lab'
+        self.mode_badge.setText({'lab': 'VM LAB MODE', 'production': 'HELPER INSTALLED'}.get(mode, 'READ-ONLY PREVIEW'))
+        self.footer_note.setText({
+            'lab': 'VM lab mode: actions go through the lab helper, its preview and a password prompt.',
+            'production': 'Checking whether this combination can be installed…',
+        }.get(mode, 'Installation is unavailable until recipes and the privileged helper are validated.'))
+
     def _set_lab_mode(self, enabled: bool) -> None:
-        self.lab_mode = enabled
-        self.mode_badge.setText('VM LAB MODE' if enabled else 'READ-ONLY PREVIEW')
-        self.footer_note.setText(
-            'VM lab mode: actions go through the lab helper, its preview and a password prompt.' if enabled else
-            'Installation is unavailable until recipes and the privileged helper are validated.')
+        self._set_mode('lab' if enabled else None)
 
     def _start_lab_worker(self, task: Callable, on_done: Callable) -> None:
         self._lab_worker = LabWorker(task, self)
@@ -582,8 +624,10 @@ class DesktopForgeWindow(QMainWindow):
             return
         self.status_label.setText('Asking the lab helper for a preview…')
 
+        factory = self.production_client_factory if self.helper_mode == 'production' else self.lab_client_factory
+
         def task(_progress):
-            self._lab_client = self.lab_client_factory()  # one connection for preview and apply
+            self._lab_client = factory()  # one connection for preview and apply
             return self._lab_client.preview(recipe)
         self._start_lab_worker(task, lambda result: self._lab_preview_ready(kind, result))
 
@@ -626,8 +670,8 @@ class DesktopForgeWindow(QMainWindow):
     def confirm_lab(self, kind: str, summary: list[str]) -> bool:
         box = QMessageBox(self)
         box.setWindowTitle('Review before continuing')
-        question = {'install': 'Install in the VM lab?', 'remove': 'Remove from the VM lab?',
-                    'repair': 'Repair in the VM lab?'}[kind]
+        where = ' in the VM lab' if self.helper_mode == 'lab' else ''
+        question = {'install': f'Install{where}?', 'remove': f'Remove{where}?', 'repair': f'Repair{where}?'}[kind]
         box.setText(question + ' You will be asked to authenticate next.')
         box.setDetailedText('\n'.join(summary))
         box.setInformativeText('\n'.join(f'• {line}' for line in summary[:8]))

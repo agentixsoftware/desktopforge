@@ -91,6 +91,8 @@ RECIPES = {
     # Lab-validated; becomes approved only with an evidence file and the owner's sign-off.
     'fedora45-niri-noctalia-lab': {'revision': 2, 'status': 'lab-validated', 'signer': FEDORA45_KEY_ID,
                                    'target': {'compositor': 'niri', 'shell': 'noctalia'},
+                                   'constraints': {'distribution': 'fedora', 'version_id': '45',
+                                                   'display_managers': ['gdm', 'sddm']},
                                    'requires_hardware_rendering': True, 'operations': [
         {'op': 'install_packages', 'packages': ['niri', 'noctalia'], 'repositories': ['fedora', 'updates']},
         {'op': 'create_file', 'target': 'session-config', 'name': 'niri-noctalia.kdl', 'mode': 0o644,
@@ -158,7 +160,7 @@ def action_for(recipe_id):
 
 
 def build_plan(recipe_id, current, session_names, render, session_filename,
-               resolve=None, templates=None, installed=(), rendering=None, kept_paths=None):
+               resolve=None, templates=None, installed=(), rendering=None, kept_paths=None, system=None):
     """Plan for a built-in recipe, or blockers. Content comes only from RECIPES.
 
     current: evidence records per target. session_names: existing session file ->
@@ -171,6 +173,17 @@ def build_plan(recipe_id, current, session_names, render, session_filename,
     existing = {target: {r['name'] for r in current.get(target, [])} for target in TARGETS}
     taken = {name.casefold() for name in session_names.values() if name}
     blockers, operations = [], []
+    constraints = recipe.get('constraints')
+    if constraints:
+        facts = system() if system else {}
+        if (facts.get('distribution'), facts.get('version_id')) != (constraints['distribution'],
+                                                                  constraints['version_id']):
+            blockers.append(f'This recipe is for {constraints["distribution"]} {constraints["version_id"]}; '
+                            f'this system is {facts.get("distribution") or "unknown"} '
+                            f'{facts.get("version_id") or ""}'.rstrip() + '.')
+        if facts.get('display_manager') not in constraints['display_managers']:
+            blockers.append('This recipe supports the ' + ' or '.join(m.upper() for m in constraints['display_managers'])
+                            + f' login screen; this system uses {facts.get("display_manager") or "an unknown one"}.')
     render_status = None
     if recipe.get('requires_hardware_rendering'):
         probe = rendering() if rendering else {'status': 'unknown'}
@@ -486,7 +499,35 @@ def validate_niri(_dir_fd, name):  # pragma: no cover - VM only
 
 def info():
     """What this helper is and offers; clients check the protocol before anything else."""
-    return {'protocol': PROTOCOL_VERSION, 'profile': PROFILE_NAME, 'recipes': sorted(RECIPES)}
+    targets = sorted(f'{rid}={r["target"]["compositor"]}/{r["target"]["shell"]}'
+                     for rid, r in RECIPES.items() if 'target' in r)
+    return {'protocol': PROTOCOL_VERSION, 'profile': PROFILE_NAME, 'recipes': sorted(RECIPES), 'targets': targets}
+
+
+def system_facts(root='/'):  # pragma: no cover - exercised in the VM; parsing is unit-tested
+    """The helper's own reading of distribution, release and configured display manager."""
+    import os
+    facts = {}
+    try:
+        with open(os.path.join(root, 'etc/os-release'), encoding='utf-8') as stream:
+            facts.update(parse_os_release(stream.read()))
+    except OSError:
+        pass
+    try:
+        target = os.readlink(os.path.join(root, 'etc/systemd/system/display-manager.service'))
+        facts['display_manager'] = os.path.basename(target).removesuffix('.service')
+    except OSError:
+        facts['display_manager'] = None
+    return facts
+
+
+def parse_os_release(text):
+    values = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition('=')
+        if sep and key in ('ID', 'VERSION_ID'):
+            values[key] = value.strip().strip('"\'')
+    return {'distribution': values.get('ID'), 'version_id': values.get('VERSION_ID')}
 
 
 def run_service():  # pragma: no cover - exercised in the disposable VM
@@ -657,7 +698,8 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
         installed = [dict(r, removed=r['install_id'] in removed) for r in installs.values()]
         plan, blockers = build_plan(recipe_id, current, names, sessions.render, sessions.session_filename,
                                     resolve=lambda p, r: pkgtx.resolve(p, r, runner), templates=templates,
-                                    installed=installed, rendering=probe_rendering, kept_paths=kept)
+                                    installed=installed, rendering=probe_rendering, kept_paths=kept,
+                                    system=system_facts)
         return current, plan, blockers
 
     def watch_sender(sender):

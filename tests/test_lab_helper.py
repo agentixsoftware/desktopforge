@@ -27,9 +27,13 @@ RESOLVED = [{'name': 'niri', 'arch': 'x86_64', 'evr': '0:26.04-2.fc45', 'repo': 
 HARDWARE = lambda: {'status': 'hardware', 'nodes': [{'renderer': 'virgl (Mesa Intel(R) Iris(R) Xe Graphics)'}]}
 
 
-def plan(helper, recipe, current=EMPTY, names=None, resolve=lambda p, r: (RESOLVED, []), rendering=HARDWARE):
+FEDORA45_GDM = lambda: {'distribution': 'fedora', 'version_id': '45', 'display_manager': 'gdm'}  # noqa: E731
+
+
+def plan(helper, recipe, current=EMPTY, names=None, resolve=lambda p, r: (RESOLVED, []), rendering=HARDWARE,
+         system=FEDORA45_GDM):
     return helper['build_plan'](recipe, current, names or {}, sessions.render, sessions.session_filename,
-                                resolve=resolve, templates=TEMPLATES, rendering=rendering)
+                                resolve=resolve, templates=TEMPLATES, rendering=rendering, system=system)
 
 
 @pytest.mark.parametrize('recipe', ['', 'LAB-SYNTHETIC-MARKER', '../etc', 'lab-synthetic-marker\n',
@@ -287,7 +291,8 @@ def test_recorded_installation_blocks_reapply(helper):
                   'install_id': 'e' * 32, 'recorded_at': '2026-11-15T08:40:00Z'}]
     _, blockers = helper['build_plan']('fedora45-niri-noctalia-lab', EMPTY, {}, sessions.render,
                                        sessions.session_filename, resolve=lambda p, r: ([], []),
-                                       templates=TEMPLATES, installed=installed, rendering=HARDWARE)
+                                       templates=TEMPLATES, installed=installed, rendering=HARDWARE,
+                                       system=FEDORA45_GDM)
     assert blockers == [f'Already installed by DesktopForge (install {"e" * 32}, 2026-11-15T08:40:00Z); nothing to do.']
 
 
@@ -316,3 +321,36 @@ def test_rendering_result_is_bound_into_the_plan(helper):
     assert 'rendering' not in lab  # recipes that do not need it are unaffected
     bad, _ = plan(helper, 'fedora45-niri-noctalia-lab', rendering=lambda: {'status': 'software-only', 'nodes': []})
     assert executor.plan_hash(good) != executor.plan_hash(bad)
+
+
+
+@pytest.mark.parametrize('facts, fragment', [
+    ({'distribution': 'fedora', 'version_id': '46', 'display_manager': 'gdm'}, 'this system is fedora 46'),
+    ({'distribution': 'arch', 'version_id': None, 'display_manager': 'sddm'}, 'this system is arch'),
+    ({'distribution': 'fedora', 'version_id': '45', 'display_manager': 'lightdm'}, 'this system uses lightdm'),
+    ({}, 'unknown'),
+])
+def test_recipe_constraints_are_checked_by_the_helper(helper, facts, fragment):
+    _, blockers = plan(helper, 'fedora45-niri-noctalia-lab', system=lambda: facts)
+    assert any(fragment in b for b in blockers)
+
+
+@pytest.mark.parametrize('dm', ['gdm', 'sddm'])
+def test_supported_display_managers_pass(helper, dm):
+    _, blockers = plan(helper, 'fedora45-niri-noctalia-lab',
+                       system=lambda: {'distribution': 'fedora', 'version_id': '45', 'display_manager': dm})
+    assert blockers == []
+
+
+def test_os_release_parsing(helper):
+    assert helper['parse_os_release']('NAME="Fedora Linux"\nID=fedora\nVERSION_ID=45\n') == {
+        'distribution': 'fedora', 'version_id': '45'}
+    assert helper['parse_os_release']("ID='arch'\n") == {'distribution': 'arch', 'version_id': None}
+
+
+def test_system_facts_read_os_release_and_display_manager(helper, tmp_path):
+    (tmp_path / 'etc/systemd/system').mkdir(parents=True)
+    (tmp_path / 'etc/os-release').write_text('ID=fedora\nVERSION_ID=45\n')
+    (tmp_path / 'etc/systemd/system/display-manager.service').symlink_to('/usr/lib/systemd/system/sddm.service')
+    assert helper['system_facts'](str(tmp_path)) == {'distribution': 'fedora', 'version_id': '45',
+                                                     'display_manager': 'sddm'}

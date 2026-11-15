@@ -3,7 +3,7 @@
   "recipe": {
     "id": "fedora45-niri-noctalia-lab",
     "revision": 2,
-    "fingerprint": "af5470af8279f86b8d51041fbc2bc1af2ff8533810c5f56db536b53c19bab49a"
+    "fingerprint": "4e96fea8c3c30358330ba4e55f854190af6115998c709bf6857b3fa4e6e0ca59"
   },
   "environments": {
     "kvm-gdm-virgl": {

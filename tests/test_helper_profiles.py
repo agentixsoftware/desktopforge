@@ -54,7 +54,8 @@ def test_production_refuses_lab_recipes(prod):
 
 
 def test_info_reports_protocol_profile_and_offers(prod, lab):
-    assert prod['info']() == {'protocol': 1, 'profile': 'production', 'recipes': []}
+    assert prod['info']() == {'protocol': 1, 'profile': 'production', 'recipes': [], 'targets': []}
+    assert 'fedora45-niri-noctalia-lab=niri/noctalia' in lab['info']()['targets']
     assert lab['info']()['profile'] == 'lab' and 'fedora45-niri-noctalia-lab' in lab['info']()['recipes']
     node = ET.fromstring(prod['INTROSPECTION'])
     assert node.find("./interface[@name='org.desktopforge.Helper1']/method[@name='Info']") is not None

@@ -187,7 +187,7 @@ VMs cannot validate GPUs, hybrid graphics, suspend or real user setups. Proposed
 | 3. SELinux policy module (permissive, then enforcing in the VM) | Medium | Confined helper |
 | 4. dnf5daemon backend, keeping the CLI adapter as fallback | Medium | Structured package transactions and progress |
 | 5. Validation evidence file plus a script to produce it from VM runs | Small | **Done (2026-11-15):** evidence schema, fingerprint, staleness check and `scripts/validation-report` ([VALIDATION_EVIDENCE.md](VALIDATION_EVIDENCE.md)); reference recipe currently not-validated (all cases stale, hardware missing); a scripted matrix re-run is still needed |
-| 6. GUI gates (section 5) with clear "why not" messages | Small | Read-only unless every gate passes |
+| 6. GUI gates (section 5) with clear "why not" messages | Small | **Done (2026-11-15):** production mode when `desktopforge-helper` is present (helper + protocol, approved recipe for the combination, hardware rendering; distribution/release/display manager checked by the helper from the recipe's constraints); first failing gate shown in the footer |
 | 7. Real-hardware run on a spare machine | Depends on hardware | First non-VM evidence |
 
 ## 9. Decisions (accepted 2026-11-15)

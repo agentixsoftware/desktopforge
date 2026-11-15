@@ -36,7 +36,8 @@ class FakeClient:
 
 def make_window(inventory, client, available=True):
     widget = DesktopForgeWindow(detector=lambda: inventory, auto_refresh=False,
-                                lab_available=lambda: available, lab_client_factory=lambda: client)
+                                lab_available=lambda: available, lab_client_factory=lambda: client,
+                                production_info=lambda: None)
     widget.dialogs = []
     widget.confirm_lab = lambda kind, summary: widget.dialogs.append(('confirm', kind, summary)) or widget.confirm_answer
     widget.report_lab = lambda title, lines: widget.dialogs.append(('report', title, lines))

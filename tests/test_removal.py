@@ -352,6 +352,8 @@ def test_reinstall_explains_a_config_kept_by_an_earlier_removal(helper):
                                        sessions.session_filename, resolve=lambda p, r: ([], []),
                                        templates={'niri-noctalia.kdl': 'x'}, installed=[],
                                        rendering=lambda: {'status': 'hardware', 'nodes': []},
-                                       kept_paths={CONFIG: INSTALL_ID})
+                                       kept_paths={CONFIG: INSTALL_ID},
+                                       system=lambda: {'distribution': 'fedora', 'version_id': '45',
+                                                       'display_manager': 'gdm'})
     assert blockers == [f'{CONFIG} was kept when installation {INSTALL_ID} was removed, because it had been edited. '
                         'It will not be overwritten: move or delete it to reinstall, or keep it as your own copy.']
