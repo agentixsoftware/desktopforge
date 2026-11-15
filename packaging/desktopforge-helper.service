@@ -1,0 +1,40 @@
+[Unit]
+Description=DesktopForge privileged helper (approved recipes only)
+Documentation=https://github.com/agentixsoftware/desktopforge
+
+[Service]
+Type=dbus
+BusName=org.desktopforge.Helper1
+ExecStart=/usr/libexec/desktopforge/desktopforge-helper
+# Root UID is needed only so Polkit accepts checks for another subject. No
+# capabilities or network. Writable: its state directory, the session directory
+# and /etc/desktopforge. Package transactions run as separate transient units
+# started through systemd with a fixed command line.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0022
+StateDirectory=desktopforge desktopforge/installs
+StateDirectoryMode=0755
+ReadWritePaths=/usr/share/wayland-sessions
+ConfigurationDirectory=desktopforge
+ConfigurationDirectoryMode=0755

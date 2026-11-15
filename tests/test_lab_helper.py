@@ -20,7 +20,7 @@ def helper():
     return runpy.run_path(str(LAB / 'desktopforge-lab-helper'))
 
 
-TEMPLATES = {'niri-noctalia.kdl': (LAB / 'templates/niri-noctalia.kdl').read_text()}
+TEMPLATES = {'niri-noctalia.kdl': (REPO / 'src/desktopforge/data/templates/niri-noctalia.kdl').read_text()}
 RESOLVED = [{'name': 'niri', 'arch': 'x86_64', 'evr': '0:26.04-2.fc45', 'repo': 'fedora'}]
 
 
@@ -162,7 +162,7 @@ def test_installer_ships_every_core_module_and_helper_file():
     assert core == set(installer['CORE_FILES'])
     lab = {p.name for p in LAB.iterdir() if p.is_file()} - {'desktopforge-lab-client'}
     assert lab <= {Path(source).name for source in files}
-    assert 'lab/helper/templates/niri-noctalia.kdl' in files
+    assert 'src/desktopforge/data/templates/niri-noctalia.kdl' in files
     assert files['src/desktopforge/loginsession.py'] == ('/usr/local/libexec/desktopforge-lab/desktopforge-session', 0o755)
     for relative in files:
         assert (REPO / relative).is_file(), relative
@@ -230,7 +230,7 @@ def test_session_config_has_no_environment_overrides_and_starts_noctalia():
 
 @pytest.mark.skipif(shutil.which('niri') is None, reason='niri not installed on this machine')
 def test_session_config_passes_niri_validate():
-    result = subprocess.run(['niri', 'validate', '--config', str(LAB / 'templates/niri-noctalia.kdl')],
+    result = subprocess.run(['niri', 'validate', '--config', str(REPO / 'src/desktopforge/data/templates/niri-noctalia.kdl')],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
 

@@ -25,7 +25,7 @@ def helper():
 
 @pytest.fixture(scope='module')
 def recipe_plan(helper):
-    templates = {'niri-noctalia.kdl': (REPO / 'lab/helper/templates/niri-noctalia.kdl').read_text()}
+    templates = {'niri-noctalia.kdl': (REPO / 'src/desktopforge/data/templates/niri-noctalia.kdl').read_text()}
     plan, _ = helper['build_plan'](RECIPE, {'markers': [], 'sessions': [], 'session-config': []}, {}, sessions.render,
                                    sessions.session_filename, resolve=lambda p, r: ([], []), templates=templates,
                                    rendering=lambda: {'status': 'hardware', 'nodes': []})

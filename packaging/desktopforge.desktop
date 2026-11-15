@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DesktopForge
+Comment=Add a Wayland compositor and shell as an extra login session
+Exec=desktopforge-gui
+Icon=preferences-desktop
+Categories=System;Settings;
+Terminal=false

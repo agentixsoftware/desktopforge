@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>DesktopForge</vendor>
+  <vendor_url>https://github.com/agentixsoftware/desktopforge</vendor_url>
+  <action id="org.desktopforge.install-session">
+    <description>Install packages and add a DesktopForge login session</description>
+    <message>Authentication is required to install the reviewed packages and add a new login session. Your existing desktop and login screen settings are not changed.</message>
+    <defaults><allow_any>no</allow_any><allow_inactive>no</allow_inactive><allow_active>auth_admin</allow_active></defaults>
+  </action>
+  <action id="org.desktopforge.remove-session">
+    <description>Remove a login session that DesktopForge installed</description>
+    <message>Authentication is required to remove a login session that DesktopForge installed, together with the packages it added. Edited files and your own settings are kept.</message>
+    <defaults><allow_any>no</allow_any><allow_inactive>no</allow_inactive><allow_active>auth_admin</allow_active></defaults>
+  </action>
+  <action id="org.desktopforge.repair-session">
+    <description>Repair a login session that DesktopForge installed</description>
+    <message>Authentication is required to restore missing parts of a login session that DesktopForge installed. Edited files are not overwritten and installed versions are not changed.</message>
+    <defaults><allow_any>no</allow_any><allow_inactive>no</allow_inactive><allow_active>auth_admin</allow_active></defaults>
+  </action>
+</policyconfig>

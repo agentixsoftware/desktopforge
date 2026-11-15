@@ -29,4 +29,4 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.setuptools.package-data]
-desktopforge = ["data/recipes/*.yaml"]
+desktopforge = ["data/recipes/*.yaml", "data/templates/*.kdl"]
