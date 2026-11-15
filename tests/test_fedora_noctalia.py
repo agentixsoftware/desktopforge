@@ -42,7 +42,7 @@ def test_bundled_reference_proposes_packages_without_claiming_support(reference,
     before = deepcopy(reference)
     result = build_plan(reference, 'niri', 'noctalia')
     assert result == build_plan(reference, 'niri', 'noctalia')
-    assert result['selected_recipe'] == {'id': 'fedora45-niri-noctalia', 'revision': 1}
+    assert result['selected_recipe'] == {'id': 'fedora45-niri-noctalia', 'revision': 2}
     assert result['compatibility'] == 'unverified'
     assert result['dry_run'] and not result['executable'] and result['status'] == 'blocked'
     assert [op['id'] for op in result['operations']] == [

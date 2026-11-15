@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .packages import package_assessment
+from .requirements import assess_requirements
 from .preflight import preflight_preview
 from .session_layout import session_layout_preview
 from .operations import PackageProposal, SessionProposal, operation_preview, order_operations
@@ -48,10 +49,15 @@ def build_plan(inventory: dict, compositor: str, shell: str,
     selected_recipe = None
     recipe_sources = []
     session_configuration = None
+    requirements = assess_requirements((), inventory)
     if len(matched) > 1:
         blockers.append("Multiple recipes match; select one explicitly before proposing operations.")
     elif matched:
         recipe = matched[0]
+        requirements = assess_requirements(recipe.requirements, inventory)
+        for finding in requirements['findings']:
+            if finding['status'] != 'observed':
+                blockers.append(f"{finding['executable']} ({finding['role']}): " + ' '.join(finding['reasons']))
         selected_recipe = {"id": recipe.id, "revision": recipe.revision}
         recipe_sources = list(recipe.sources)
         blockers.extend(recipe.review_blockers)
@@ -89,6 +95,7 @@ def build_plan(inventory: dict, compositor: str, shell: str,
         "selected_recipe": selected_recipe,
         "recipe_sources": recipe_sources,
         "preflight": preflight,
+        "requirement_assessment": requirements,
         "session_configuration_preview": session_configuration,
         "executable": False,
         "operations": operations,

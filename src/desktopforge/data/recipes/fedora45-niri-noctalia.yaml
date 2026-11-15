@@ -1,14 +1,19 @@
 {
   "schema_version": 2,
   "id": "fedora45-niri-noctalia",
-  "revision": 1,
+  "revision": 2,
   "status": "unverified",
   "constraints": {
     "distribution": "fedora",
-    "versions": ["45"],
+    "versions": [
+      "45"
+    ],
     "compositor": "niri",
     "shell": "noctalia",
-    "display_managers": ["gdm", "sddm"]
+    "display_managers": [
+      "gdm",
+      "sddm"
+    ]
   },
   "review": {
     "sources": [
@@ -33,31 +38,64 @@
       "type": "package_proposal",
       "depends_on": [],
       "package_manager": "dnf5",
-      "packages": ["niri", "noctalia"]
+      "packages": [
+        "niri",
+        "noctalia"
+      ]
     },
     {
       "id": "check-niri",
       "type": "dependency_check",
-      "depends_on": ["propose-packages"],
+      "depends_on": [
+        "propose-packages"
+      ],
       "executable": "niri"
     },
     {
       "id": "check-niri-session",
       "type": "dependency_check",
-      "depends_on": ["propose-packages"],
+      "depends_on": [
+        "propose-packages"
+      ],
       "executable": "niri-session"
     },
     {
       "id": "check-noctalia",
       "type": "dependency_check",
-      "depends_on": ["propose-packages"],
+      "depends_on": [
+        "propose-packages"
+      ],
       "executable": "noctalia"
     },
     {
       "id": "propose-session",
       "type": "session_proposal",
-      "depends_on": ["check-niri", "check-niri-session", "check-noctalia"],
+      "depends_on": [
+        "check-niri",
+        "check-niri-session",
+        "check-noctalia"
+      ],
       "template": "niri-noctalia-v5"
+    }
+  ],
+  "requirements": [
+    {
+      "executable": "niri",
+      "role": "compositor",
+      "package": "niri",
+      "version_major": null
+    },
+    {
+      "executable": "niri-session",
+      "role": "session_launcher",
+      "package": "niri",
+      "version_major": null
+    },
+    {
+      "executable": "noctalia",
+      "role": "shell_launcher",
+      "package": "noctalia",
+      "version_major": 5
     }
   ]
 }

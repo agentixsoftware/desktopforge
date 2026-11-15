@@ -8,6 +8,7 @@ import re
 from urllib.parse import urlsplit
 
 from .errors import RecipeError
+from .requirements import CommandRequirement, parse_requirements
 from .operations import Operation, PackageProposal, parse_operations
 
 DISTRIBUTIONS = ("fedora", "arch", "cachyos")
@@ -50,6 +51,7 @@ class Recipe:
     operations: tuple[Operation, ...] = ()
     sources: tuple[str, ...] = ()
     review_blockers: tuple[str, ...] = ()
+    requirements: tuple[CommandRequirement, ...] = ()
 
 
 def parse_recipe(data: object) -> Recipe:
@@ -62,6 +64,8 @@ def parse_recipe(data: object) -> Recipe:
     expected = {"schema_version", "id", "revision", "status", "constraints"}
     if version == 2:
         expected.add("operations")
+        if "requirements" in data:
+            expected.add("requirements")
         if "review" in data:
             expected.add("review")
     data = _keys(data, expected, "recipe")
@@ -89,6 +93,7 @@ def parse_recipe(data: object) -> Recipe:
         raise RecipeError("Package manager does not match recipe distribution")
     sources: tuple[str, ...] = ()
     review_blockers: tuple[str, ...] = ()
+    requirements: tuple[CommandRequirement, ...] = ()
     if "review" in data:
         review = _keys(data["review"], {"sources", "blockers"}, "review")
         sources = tuple(sorted(_strings(review["sources"], "review.sources")))
@@ -104,7 +109,8 @@ def parse_recipe(data: object) -> Recipe:
                 raise RecipeError("Review sources must be HTTPS URLs without credentials")
     return Recipe(data["id"], data["revision"], Constraints(
         fields["distribution"], versions, fields["compositor"], fields["shell"], managers), operations=operations,
-                  sources=sources, review_blockers=review_blockers)
+                  sources=sources, review_blockers=review_blockers,
+                  requirements=parse_requirements(data.get("requirements", [])))
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict:

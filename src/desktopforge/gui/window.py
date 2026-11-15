@@ -423,6 +423,16 @@ class DesktopForgeWindow(QMainWindow):
                     package_lines.append(f"Executable owner: {command_text}{path} → {owner_text} · {match_text}")
                     package_lines.append(ownership.get('reason', ''))
                 package_lines.append(('Reuse needs verification' if package['reuse'] == 'candidate_unverified' else 'No reuse candidate established') + '\n')
+            requirements = plan.get('requirement_assessment', {})
+            if requirements.get('findings'):
+                package_lines.append('Recipe command requirements (reuse remains unverified):')
+                roles = {'compositor': 'compositor', 'shell_launcher': 'shell launcher',
+                         'session_launcher': 'session launcher', 'management': 'management command'}
+                for finding in requirements['findings']:
+                    version = f"major {finding['required_major']}" if finding['required_major'] is not None else 'version not constrained'
+                    package_lines.append(f"{finding['executable']} · {roles[finding['role']]} · {finding['package']} · {version}: {finding['status']}")
+                    package_lines.extend(finding['reasons'])
+                package_lines.append('')
             package_lines.extend(assessment.get('limitations', []))
             self.packages.setPlainText('\n'.join(package_lines) or 'Package evidence unavailable.')
             sources = plan.get('recipe_sources', [])

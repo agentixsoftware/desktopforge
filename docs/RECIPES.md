@@ -53,8 +53,8 @@ rejected. Parse failures stop planning with exit code 2.
   working unmanaged setup cannot promote it.
 
 The packaged Fedora 45 Niri/Ryoku/SDDM metadata records only the observed reference
-scope. All other catalog combinations remain unverified targets. There are no
-compositor/shell version constraints, validated package/repository decisions,
+scope. All other catalog combinations remain unverified targets. Only the Noctalia v5 package-major requirement is currently declared; there are no
+validated package/repository decisions,
 cross-recipe composition or validated installation recipes yet.
 
 The planner accepts injected typed recipes for tests. The production CLI loads
@@ -137,3 +137,22 @@ The `niri-noctalia-v5` template ID now has an incomplete isolated layout preview
 Its launcher content is unavailable and its config fragment is not a complete
 Niri configuration. See [session drafts and preflight](SESSION_PREFLIGHT.md) for
 path selection, static evidence, schema changes and explicit limitations.
+
+## Version 2 command requirements
+
+Optional `requirements` entries declare `executable` (basename), `role`
+(`compositor`, `shell_launcher`, `session_launcher`, or `management`), `package`
+(plain package name), and `version_major` (nonnegative integer or null). Each
+command must be unique. Unknown fields and arbitrary command arguments are rejected.
+Requirements do not execute commands or extend the detector's fixed command allowlist.
+
+The Fedora 45 Niri/Noctalia recipe now requires `niri` and `niri-session` from
+package `niri`, and the `noctalia` shell launcher from package `noctalia` major 5.
+No Niri version policy has been validated; null means not constrained, not any
+version certified compatible. Major matching uses the RPM version field, excluding
+epoch and release, and never treats 50 as major 5. Non-numeric versions stay unknown.
+
+Plans expose `requirement_assessment` with per-command roles and observed,
+missing, unknown or mismatch findings. Missing inventory evidence stays unknown;
+it is not proof of absence. RPM ownership must uniquely match the expected package.
+Even all-observed findings leave compatibility unverified and installation blocked.

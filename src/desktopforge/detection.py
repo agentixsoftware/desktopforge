@@ -98,7 +98,12 @@ def detect_system(
     Current-session environment variables are hints, not proof of installed sessions.
     """
     env = os.environ if environ is None else environ
-    lookup = shutil.which if which is None else which
+    lookup_source = shutil.which if which is None else which
+    discovered_commands = {}
+    def lookup(executable):
+        if executable not in discovered_commands:
+            discovered_commands[executable] = lookup_source(executable)
+        return discovered_commands[executable]
     os_text = _read_text(root / "etc/os-release")
     if os_text is None:
         os_text = _read_text(root / "usr/lib/os-release")
@@ -135,6 +140,17 @@ def detect_system(
         shell_evidence[name] = {"executables_checked": list(executables), "found": bool(matches),
                                 "matches": matches, "executable": first.get("executable"),
                                 "path": first.get("path")}
+    # Fixed detector allowlist, independent of recipe-supplied command names.
+    lookup('niri-session')
+    command_evidence = {}
+    for executable, discovered in sorted(discovered_commands.items()):
+        resolved = None
+        if discovered and root == Path('/'):
+            try:
+                resolved = str(Path(discovered).resolve(strict=True))
+            except (OSError, RuntimeError):
+                pass
+        command_evidence[executable] = {'executable': executable, 'found': bool(discovered), 'path': resolved}
     wayland_sessions = _session_entries(root / "usr/share/wayland-sessions")
     process_evidence = inspect_processes(root / "proc") if root == Path("/") else []
     analysis = session_analysis(wayland_sessions, env, process_evidence)
@@ -149,7 +165,9 @@ def detect_system(
     return {
         "schema_version": 4,
         "package_inventory": inspect_packages(distro.get("ID"), root,
-            executables={**compositor_evidence, **{f'shell:{k}': v for k, v in shell_evidence.items()}}),
+            executables={**compositor_evidence, **{f'shell:{k}': v for k, v in shell_evidence.items()},
+                         'session:niri': command_evidence['niri-session']}),
+        "command_evidence": command_evidence,
         "preflight_evidence": preflight,
         "distribution": {
             "id": distro.get("ID"),
