@@ -21,6 +21,15 @@ SEED = ROOT / 'seed'
 SSH_PORT = 22220
 USE_TLS = False
 QMP_PORT = 22222
+PROFILE = 'default'
+# Each profile has its own disk, seed, ports, logs and backups. kvm and sddm use the
+# mutual-TLS console so both collaborating accounts can control them.
+PROFILES = {
+    'default': {'run': 'run', 'seed': 'seed', 'ssh': 22220, 'qmp': 22222, 'tls': False, 'name': 'desktopforge-fedora45'},
+    'kvm': {'run': 'run-kvm', 'seed': 'seed-kvm', 'ssh': 22221, 'qmp': 22222, 'tls': True, 'name': 'desktopforge-fedora45'},
+    'sddm': {'run': 'run-sddm', 'seed': 'seed-kvm', 'ssh': 22231, 'qmp': 22232, 'tls': True,
+             'name': 'desktopforge-fedora45-sddm'},
+}
 
 
 def qmp(command, arguments=None):
@@ -70,7 +79,7 @@ BACKUP_NAME = re.compile(r'[a-z0-9][a-z0-9._-]{0,63}')
 
 
 def backup_dir():
-    return ROOT / ('backups-kvm' if USE_TLS else 'backups')
+    return ROOT / ('backups' if PROFILE == 'default' else f'backups-{PROFILE}')
 
 
 def backup_paths(name):
@@ -118,7 +127,7 @@ def backup(name):
         raise RuntimeError('Backup verification failed; partial copy removed')
     record = {'name': name, 'sha256': actual, 'size': disk.stat().st_size,
               'created': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-              'profile': 'kvm' if USE_TLS else 'default'}
+              'profile': PROFILE}
     with open(manifest, 'x') as stream:
         json.dump(record, stream, indent=2)
     print(json.dumps(record, indent=2))
@@ -157,9 +166,13 @@ def qemu_args(accelerator, show, gl, seed_port):
     compositors such as Niri refuse software-only rendering, GNOME does not."""
     if gl:
         display = ['-device', 'virtio-vga-gl', '-display', 'gtk,gl=on' if show else 'egl-headless']
+        if not show:
+            # egl-headless keeps a readable framebuffer only for a 2D listener; a VNC
+            # server on a private Unix socket (0700 lab directory) makes screendump work.
+            display += ['-vnc', f'unix:{RUN}/vnc.sock']
     else:
         display = ['-device', 'virtio-vga', '-display', 'gtk,gl=off' if show else 'none']
-    args = ['qemu-system-x86_64', '-name', 'desktopforge-fedora45', '-machine', f'q35,accel={accelerator}',
+    args = ['qemu-system-x86_64', '-name', PROFILES[PROFILE]['name'], '-machine', f'q35,accel={accelerator}',
             '-cpu', 'host' if accelerator == 'kvm' else 'max', '-smp', '2', '-m', '4096',
             '-drive', f'file={RUN}/guest.qcow2,format=qcow2,if=virtio',
             '-netdev', f'user,id=network0,hostfwd=tcp:127.0.0.1:{SSH_PORT}-:22',
@@ -230,23 +243,27 @@ def start(accelerator, show=False, gl=False):
         server.shutdown()
 
 
+def select_profile(name):
+    global RUN, SEED, SSH_PORT, USE_TLS, QMP_PORT, PROFILE
+    profile = PROFILES[name]
+    PROFILE = name
+    RUN, SEED = ROOT / profile['run'], ROOT / profile['seed']
+    SSH_PORT, QMP_PORT, USE_TLS = profile['ssh'], profile['qmp'], profile['tls']
+
+
 def main():
-    global RUN, SEED, SSH_PORT, USE_TLS
+    global RUN, SEED, SSH_PORT, USE_TLS, QMP_PORT, PROFILE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--accelerator', choices=('auto', 'tcg', 'kvm'), default='auto',
                         help='Start mode; auto uses accessible KVM, otherwise software emulation')
     parser.add_argument('--show', action='store_true', help='Show the guest in a QEMU window')
     parser.add_argument('--gl', action='store_true',
                         help='Give the guest a virgl 3D GPU using host OpenGL (needed for Niri)')
-    parser.add_argument('--profile', choices=('default', 'kvm'), default='default')
+    parser.add_argument('--profile', choices=sorted(PROFILES), default='default')
     parser.add_argument('action', choices=('start', 'status', 'ssh', 'screenshot', 'stop', 'backup', 'restore', 'backups'))
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
-    if args.profile == 'kvm':
-        RUN = ROOT / 'run-kvm'
-        SEED = ROOT / 'seed-kvm'
-        SSH_PORT = 22221
-        USE_TLS = True
+    select_profile(args.profile)
     if not ROOT.is_dir() or ROOT.is_symlink() or ROOT.stat().st_uid != os.getuid():
         parser.error('Private VM state directory is missing or not owned by this account')
     if args.action == 'start':

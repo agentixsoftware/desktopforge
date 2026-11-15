@@ -16,7 +16,7 @@ def vm(tmp_path):
     run = root / 'run-kvm'
     run.mkdir(parents=True)
     (run / 'guest.qcow2').write_bytes(b'baseline disk')
-    globals_.update(ROOT=root, RUN=run, USE_TLS=True)
+    globals_.update(ROOT=root, RUN=run, USE_TLS=True, PROFILE='kvm')
 
     def stopped(*_args, **_kwargs):
         raise ConnectionRefusedError
@@ -103,3 +103,28 @@ def test_qemu_display_modes(vm, show, gl, device, display):
     assert device in devices and len([d for d in devices if d.startswith('virtio-vga')]) == 1
     assert f'file={run}/guest.qcow2,format=qcow2,if=virtio' in args and '-no-reboot' not in args
     assert 'tls-creds=console-tls' in ' '.join(args)  # kvm profile keeps the authenticated console
+
+
+
+def test_profiles_are_isolated_from_each_other():
+    namespace = runpy.run_path(str(SCRIPT))
+    profiles = namespace['PROFILES']
+    assert profiles['sddm']['run'] != profiles['kvm']['run']
+    assert len({(p['ssh']) for p in profiles.values()}) == len(profiles)
+    assert profiles['sddm']['qmp'] != profiles['kvm']['qmp'] and profiles['sddm']['tls']
+    select = namespace['select_profile']
+    globals_ = select.__globals__
+    select('sddm')
+    assert globals_['RUN'].name == 'run-sddm' and globals_['SSH_PORT'] == 22231 and globals_['QMP_PORT'] == 22232
+    assert globals_['backup_dir']().name == 'backups-sddm'
+    select('kvm')
+    assert globals_['backup_dir']().name == 'backups-kvm' and globals_['QMP_PORT'] == 22222
+
+
+
+def test_headless_gl_adds_a_private_vnc_socket_only(vm):
+    ns, _, run = vm
+    headless = ns['qemu_args']('kvm', False, True, 1)
+    assert headless[headless.index('-vnc') + 1] == f'unix:{run}/vnc.sock'
+    for show, gl in ((True, True), (False, False), (True, False)):
+        assert '-vnc' not in ns['qemu_args']('kvm', show, gl, 1)
