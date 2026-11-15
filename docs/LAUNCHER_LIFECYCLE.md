@@ -109,3 +109,11 @@ Tests exercise prior value/absence restoration, separate shell readiness,
 startup failure, interruption, manager outages, concurrent attempts, foreign
 ownership, changed revisions, stop failures, invalid paths/events and repeated
 cleanup. Passing them validates the pure model, not a live Linux session.
+
+## Native implementation follow-up
+
+[Native runtime primitives](LAUNCHER_RUNTIME.md) now implement a real cooperating
+per-user lease, unfinished-attempt markers, config descriptor pinning and direct
+child control. They do not implement the model's shared-manager environment
+revision semantics, runtime readiness or full session shutdown. There is no
+adapter that executes these modeled effects against the installed desktop.

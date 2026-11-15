@@ -72,3 +72,9 @@ launcher and config remain incomplete drafts; no files or services are changed.
 A [launcher lifecycle simulation](docs/LAUNCHER_LIFECYCLE.md) now tests startup,
 shell readiness and ownership-aware environment cleanup using immutable fixture
 state. It has no runtime adapter and cannot launch or alter a desktop session.
+
+The internal [native launcher foundation](docs/LAUNCHER_RUNTIME.md) now implements
+per-user locking, unfinished-attempt markers, pinned read-only config descriptors
+and pidfd-based direct-child control. Tests use temporary files and trusted
+fixture processes only. There is no production launch command or installed
+session launcher; all inventory and planning commands remain read-only.

@@ -101,3 +101,8 @@ interruption, startup failures and deferred cleanup. No real adapter, process
 supervision, environment import or crash recovery is implemented. Static
 preflight observations cannot automatically mark the model's review prerequisites
 as satisfied. Layouts remain incomplete and non-executable.
+
+Native locking, marker, config-descriptor and direct-child components now exist
+in a separate internal module; see [native runtime scope](LAUNCHER_RUNTIME.md).
+They are not invoked by detection/planning and do not make the draft launcher
+installable or provide a complete session runtime.
