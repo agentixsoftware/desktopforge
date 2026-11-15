@@ -113,6 +113,7 @@ RECIPES = {
 }
 # A profile offers only recipes whose status it accepts: production offers approved
 # recipes only; lab-only synthetic recipes can never reach production.
+ALL_RECIPES = dict(RECIPES)  # every definition, for fingerprints and validation reports
 RECIPES = {rid: r for rid, r in RECIPES.items() if r['status'] in PROFILE['offers']}
 TARGETS = {'sessions': SESSIONS_DIR, 'session-config': SESSION_CONFIG}
 if PROFILE['markers']:

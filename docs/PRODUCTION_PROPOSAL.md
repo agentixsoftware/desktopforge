@@ -186,7 +186,7 @@ VMs cannot validate GPUs, hybrid graphics, suspend or real user setups. Proposed
 | 2. RPM spec files plus a local mock/COPR build; install in a fresh VM | Medium | **Done (2026-11-15):** `packaging/desktopforge.spec` built in the SDDM VM; install, production `Info`, refusal of lab recipes, uninstall verified ([PACKAGING.md](PACKAGING.md)); mock/COPR build pending |
 | 3. SELinux policy module (permissive, then enforcing in the VM) | Medium | Confined helper |
 | 4. dnf5daemon backend, keeping the CLI adapter as fallback | Medium | Structured package transactions and progress |
-| 5. Validation evidence file plus a script to produce it from VM runs | Small | Approval becomes checkable |
+| 5. Validation evidence file plus a script to produce it from VM runs | Small | **Done (2026-11-15):** evidence schema, fingerprint, staleness check and `scripts/validation-report` ([VALIDATION_EVIDENCE.md](VALIDATION_EVIDENCE.md)); reference recipe currently not-validated (all cases stale, hardware missing); a scripted matrix re-run is still needed |
 | 6. GUI gates (section 5) with clear "why not" messages | Small | Read-only unless every gate passes |
 | 7. Real-hardware run on a spare machine | Depends on hardware | First non-VM evidence |
 

@@ -1,0 +1,212 @@
+{
+  "schema": 1,
+  "recipe": {
+    "id": "fedora45-niri-noctalia-lab",
+    "revision": 2,
+    "fingerprint": "af5470af8279f86b8d51041fbc2bc1af2ff8533810c5f56db536b53c19bab49a"
+  },
+  "environments": {
+    "kvm-gdm-virgl": {
+      "kind": "vm",
+      "description": "KVM Fedora 45 (Cloud Base + Workstation environment), GNOME, virgl GPU",
+      "display_manager": "gdm",
+      "renderer": "virgl (Mesa Intel(R) Iris(R) Xe Graphics (ADL GT2))"
+    },
+    "kvm-gdm-llvmpipe": {
+      "kind": "vm",
+      "description": "Same KVM guest booted without virgl",
+      "display_manager": "gdm",
+      "renderer": "llvmpipe (LLVM 23.1.2, 256 bits)"
+    },
+    "sddm-virgl": {
+      "kind": "vm",
+      "description": "KVM clone of the GNOME baseline with SDDM (sddm-wayland-generic) instead of GDM",
+      "display_manager": "sddm",
+      "renderer": "virgl (Mesa Intel(R) Iris(R) Xe Graphics (ADL GT2))"
+    }
+  },
+  "cases": [
+    {
+      "id": "preview-disclosure",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "5a05d30",
+      "reference": "docs/LAB_HELPER.md#fedora-45-niri--noctalia-lab-install-2026-11-15"
+    },
+    {
+      "id": "install-gdm",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "dfe1bed",
+      "reference": "docs/INSTALL_RECORDS.md"
+    },
+    {
+      "id": "login-logout-gdm",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "f775d67",
+      "reference": "docs/LAB_HELPER.md#desktopforge-session-launcher-2026-11-15-recipe-revision-2"
+    },
+    {
+      "id": "original-desktop-gdm",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "f775d67",
+      "reference": "docs/LAB_HELPER.md#desktopforge-session-launcher-2026-11-15-recipe-revision-2"
+    },
+    {
+      "id": "install-sddm",
+      "environment": "sddm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "e61b3b4",
+      "reference": "docs/SDDM_VM.md"
+    },
+    {
+      "id": "login-logout-sddm",
+      "environment": "sddm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "e61b3b4",
+      "reference": "docs/SDDM_VM.md"
+    },
+    {
+      "id": "original-desktop-sddm",
+      "environment": "sddm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "e61b3b4",
+      "reference": "docs/SDDM_VM.md"
+    },
+    {
+      "id": "reboot-installed",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "76b0953",
+      "reference": "docs/LAB_HELPER.md#reboot-2026-11-15-virgl-guest"
+    },
+    {
+      "id": "reboot-during-session",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "76b0953",
+      "reference": "docs/LAB_HELPER.md#reboot-2026-11-15-virgl-guest"
+    },
+    {
+      "id": "failed-install-retry",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "8a099c9",
+      "reference": "docs/LAB_HELPER.md#failed-install-and-retry-network-outage-2026-11-15"
+    },
+    {
+      "id": "software-rendering-blocked",
+      "environment": "kvm-gdm-llvmpipe",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "8603429",
+      "reference": "docs/INSTALL_RECORDS.md#rendering-preflight"
+    },
+    {
+      "id": "no-display-fallback",
+      "environment": "kvm-gdm-llvmpipe",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "8603429",
+      "reference": "docs/INSTALL_RECORDS.md#launcher-no-display-fallback-non-virgl-guest"
+    },
+    {
+      "id": "removal",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "6319873",
+      "reference": "docs/REMOVAL.md"
+    },
+    {
+      "id": "reinstall-after-removal",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "6319873",
+      "reference": "docs/REMOVAL.md"
+    },
+    {
+      "id": "removal-keeps-edited-file",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "6319873",
+      "reference": "docs/REMOVAL.md"
+    },
+    {
+      "id": "repair-missing-file",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "3e46840",
+      "reference": "docs/REPAIR.md"
+    },
+    {
+      "id": "repair-missing-package",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "3e46840",
+      "reference": "docs/REPAIR.md"
+    },
+    {
+      "id": "repair-refuses-edited-file",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "3e46840",
+      "reference": "docs/REPAIR.md"
+    },
+    {
+      "id": "dependency-reverification",
+      "environment": "kvm-gdm-virgl",
+      "result": "pass",
+      "date": "2026-11-15",
+      "commit": "f8c0455",
+      "reference": "docs/INSTALL_RECORDS.md"
+    }
+  ],
+  "packages": [
+    {
+      "name": "niri",
+      "evr": "0:26.04-2.fc45"
+    },
+    {
+      "name": "noctalia",
+      "evr": "0:5.5.0-3.fc45"
+    },
+    {
+      "name": "xwayland-satellite",
+      "evr": "0:0.8.3-1.fc45"
+    },
+    {
+      "name": "libseat",
+      "evr": "0:0.9.3-2.fc45"
+    },
+    {
+      "name": "jemalloc",
+      "evr": "0:5.3.0-14.fc44"
+    },
+    {
+      "name": "libqalculate",
+      "evr": "0:5.11.0-3.fc45"
+    },
+    {
+      "name": "tomlplusplus",
+      "evr": "0:3.4.0-8.fc45"
+    }
+  ]
+}
