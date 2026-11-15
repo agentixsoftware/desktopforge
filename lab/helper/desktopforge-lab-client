@@ -10,20 +10,10 @@ import json
 import sys
 import time
 
-from gi.repository import Gio, GLib
+from pathlib import Path
 
-DEST, PATH, IFACE = 'org.desktopforge.LabHelper1', '/org/desktopforge/LabHelper1', 'org.desktopforge.LabHelper1'
-
-
-def call(bus, method, args, signature, timeout_ms=10000):
-    try:
-        reply = bus.call_sync(DEST, PATH, IFACE, method, GLib.Variant(signature, args),
-                              GLib.VariantType('(a{sv})'), Gio.DBusCallFlags.NONE, timeout_ms, None)
-        return {'ok': True, **reply.unpack()[0]}
-    except GLib.Error as exc:
-        name = Gio.DBusError.get_remote_error(exc)
-        reason = exc.message.split(f'{name}: ', 1)[-1] if name else exc.message
-        return {'ok': False, 'error': name, 'reason': reason}
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
+from desktopforge.labclient import LabHelperClient  # noqa: E402
 
 
 HUMAN = False
@@ -55,12 +45,6 @@ def emit(step, record):
     sys.stdout.flush()
 
 
-def private_connection():
-    address = Gio.dbus_address_get_for_bus_sync(Gio.BusType.SYSTEM, None)
-    return Gio.DBusConnection.new_for_address_sync(
-        address, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('recipe')
@@ -74,18 +58,21 @@ def main():
     global HUMAN
     HUMAN = args.human
 
-    bus = private_connection()
-    preview = call(bus, 'Preview', (args.recipe,), '(s)')
+    client = LabHelperClient()
+    preview = client.preview(args.recipe)
     emit('preview', {k: v for k, v in preview.items() if k != 'token'} | {'token_issued': bool(preview.get('token'))})
     if not preview.get('ok') or preview.get('status') != 'ready' or args.preview_only:
         return 0
     if args.pause:
         time.sleep(args.pause)
     plan_hash = ('0' * 64) if args.tamper_plan else preview['plan_hash']
-    applier = private_connection() if args.other_connection else bus
-    emit('apply', call(applier, 'Apply', (preview['token'], plan_hash), '(ss)', timeout_ms=1200000))
+    applier = LabHelperClient() if args.other_connection else client
+    progress = (lambda step, message: print(f'  … {message}', flush=True)) if HUMAN else None
+    if HUMAN:
+        print('\n== PROGRESS ==', flush=True)
+    emit('apply', applier.apply(preview['token'], plan_hash, progress))
     if args.replay:
-        emit('replay', call(applier, 'Apply', (preview['token'], plan_hash), '(ss)', timeout_ms=1200000))
+        emit('replay', applier.apply(preview['token'], plan_hash))
     return 0
 
 

@@ -12,9 +12,10 @@ from PySide6.QtGui import QCloseEvent, QColor, QFont, QPalette
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFrame,
     QGridLayout, QHBoxLayout, QHeaderView, QLabel, QListWidget, QMainWindow,
     QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSplitter, QTabWidget,
-    QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
+    QMessageBox, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from ..detection import detect_system
+from ..labclient import LabHelperClient, lab_action
 from ..planning import build_plan
 from ..recipes import COMPOSITORS, SHELLS
 
@@ -107,12 +108,35 @@ class InventoryWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class LabWorker(QThread):
+    """Runs one lab-helper call off the GUI thread; task(progress) returns a result dict."""
+    progressed = Signal(str)
+    done = Signal(object)
+
+    def __init__(self, task: Callable, parent=None):
+        super().__init__(parent)
+        self.task = task
+
+    def run(self) -> None:
+        try:
+            self.done.emit(self.task(self.progressed.emit))
+        except Exception as exc:  # report, never crash the GUI
+            self.done.emit({'ok': False, 'reason': str(exc)})
+
+
 class DesktopForgeWindow(QMainWindow):
     def __init__(self, *, detector: Callable = detect_system, planner: Callable = build_plan,
-                 auto_refresh: bool = True):
+                 auto_refresh: bool = True, lab_available: Callable = LabHelperClient.available,
+                 lab_client_factory: Callable = LabHelperClient):
         super().__init__()
         self.detector = detector
         self.planner = planner
+        self.lab_available = lab_available
+        self.lab_client_factory = lab_client_factory
+        self.lab_mode = False
+        self.lab_request: tuple[str, str] | None = None
+        self._lab_client = None
+        self._lab_worker: LabWorker | None = None
         self.inventory: dict | None = None
         self.plan: dict | None = None
         self._worker: InventoryWorker | None = None
@@ -135,7 +159,8 @@ class DesktopForgeWindow(QMainWindow):
         header = QHBoxLayout()
         header.addWidget(label('DesktopForge', 'brand'))
         header.addStretch()
-        header.addWidget(label('READ-ONLY PREVIEW', 'previewBadge'))
+        self.mode_badge = label('READ-ONLY PREVIEW', 'previewBadge')
+        header.addWidget(self.mode_badge)
         self.refresh_button = QPushButton('Refresh system')
         self.refresh_button.setObjectName('refreshButton')
         self.refresh_button.clicked.connect(self.refresh_inventory)
@@ -257,11 +282,13 @@ class DesktopForgeWindow(QMainWindow):
         preview.addLayout(actions)
         content.addWidget(preview_card, 1)
         footer = QHBoxLayout()
-        footer.addWidget(label('Installation is unavailable until recipes and the privileged helper are validated.', 'muted'), 1)
+        self.footer_note = label('Installation is unavailable until recipes and the privileged helper are validated.', 'muted')
+        footer.addWidget(self.footer_note, 1)
         self.install_button = QPushButton('Installation unavailable')
         self.install_button.setObjectName('installButton')
         self.install_button.setEnabled(False)
         self.install_button.setToolTip('This GUI only detects and previews. It has no installation or desktop-launch action.')
+        self.install_button.clicked.connect(self.start_lab_action)
         footer.addWidget(self.install_button)
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -324,6 +351,10 @@ class DesktopForgeWindow(QMainWindow):
     def _inventory_ready(self, inventory: dict) -> None:
         if self._closing:
             return
+        try:
+            self._set_lab_mode(bool(self.lab_available()))
+        except Exception:
+            self._set_lab_mode(False)
         try:
             distro = inventory['distribution']
             self.distribution_label.setText(distro.get('name') or distro.get('id') or 'Unknown distribution')
@@ -493,8 +524,104 @@ class DesktopForgeWindow(QMainWindow):
             self.copy_button.setEnabled(False)
             self.review_button.setEnabled(False)
             self.tabs.setCurrentIndex(1)
-        # No state, including malformed/optimistic core results, can enable apply.
+        self._update_lab_button()
+
+    # ---- VM lab mode --------------------------------------------------------------------
+    # Production installation stays unavailable. Only when the VM-lab helper is present
+    # on the system bus can the GUI request its preview/approve/apply flow; the helper
+    # decides, Polkit authorizes, and nothing here performs a change itself.
+
+    def _update_lab_button(self) -> None:
+        busy = self._lab_worker is not None and self._lab_worker.isRunning()
+        self.lab_request = lab_action(self.plan, self.lab_mode) if self.plan is not None else None
+        if self.lab_request is None:
+            self.install_button.setText('Installation unavailable')
+            self.install_button.setEnabled(False)
+            return
+        kind, _recipe = self.lab_request
+        self.install_button.setText('Install in VM lab…' if kind == 'install' else 'Remove from VM lab…')
+        self.install_button.setToolTip('Uses the VM-lab helper: you review its preview, then authenticate.')
+        self.install_button.setEnabled(not busy)
+
+    def _set_lab_mode(self, enabled: bool) -> None:
+        self.lab_mode = enabled
+        self.mode_badge.setText('VM LAB MODE' if enabled else 'READ-ONLY PREVIEW')
+        self.footer_note.setText(
+            'VM lab mode: actions go through the lab helper, its preview and a password prompt.' if enabled else
+            'Installation is unavailable until recipes and the privileged helper are validated.')
+
+    def _start_lab_worker(self, task: Callable, on_done: Callable) -> None:
+        self._lab_worker = LabWorker(task, self)
+        self._lab_worker.progressed.connect(self.status_label.setText)
+        self._lab_worker.done.connect(on_done)
         self.install_button.setEnabled(False)
+        self.refresh_button.setEnabled(False)
+        self.progress.show()
+        self._lab_worker.start()
+
+    def start_lab_action(self) -> None:
+        if self.lab_request is None or (self._lab_worker is not None and self._lab_worker.isRunning()):
+            return
+        kind, recipe = self.lab_request
+        self.status_label.setText('Asking the lab helper for a preview…')
+
+        def task(_progress):
+            self._lab_client = self.lab_client_factory()  # one connection for preview and apply
+            return self._lab_client.preview(recipe)
+        self._start_lab_worker(task, lambda result: self._lab_preview_ready(kind, result))
+
+    def _lab_idle(self) -> None:
+        self.progress.hide()
+        self.refresh_button.setEnabled(True)
+        self._update_lab_button()
+
+    def _lab_preview_ready(self, kind: str, preview: dict) -> None:
+        self._lab_idle()
+        if not preview.get('ok'):
+            self.status_label.setText('Lab helper refused the request; nothing changed')
+            self.report_lab('Request refused', [preview.get('reason') or 'Unknown error'])
+            return
+        if preview.get('status') != 'ready':
+            self.status_label.setText('Blocked; nothing changed')
+            self.report_lab('Blocked', list(preview.get('blockers', [])))
+            return
+        if not self.confirm_lab(kind, list(preview.get('summary', []))):
+            self.status_label.setText('Cancelled; nothing changed')
+            return
+        client, token, plan_hash = self._lab_client, preview['token'], preview['plan_hash']
+        self.status_label.setText('Waiting for authentication…')
+        self._start_lab_worker(lambda progress: client.apply(token, plan_hash, lambda _step, message: progress(message)),
+                               self._lab_applied)
+
+    def _lab_applied(self, result: dict) -> None:
+        self._lab_idle()
+        if not result.get('ok'):
+            lines = [result.get('reason') or 'Unknown error']
+        else:
+            lines = [f"Outcome: {result.get('outcome')}"] + [f"• {item}" for item in result.get('created', [])]
+            for key in ('detail', 'error', 'recovery', 'record'):
+                if result.get(key):
+                    lines.append(f"{key.capitalize()}: {result[key]}")
+        self.status_label.setText(f"Lab helper result: {result.get('outcome') or 'refused'}")
+        self.report_lab('Result', lines)
+        self.refresh_inventory()
+
+    def confirm_lab(self, kind: str, summary: list[str]) -> bool:
+        box = QMessageBox(self)
+        box.setWindowTitle('Review before continuing')
+        box.setText(('Install in the VM lab?' if kind == 'install' else 'Remove from the VM lab?')
+                    + ' You will be asked to authenticate next.')
+        box.setDetailedText('\n'.join(summary))
+        box.setInformativeText('\n'.join(f'• {line}' for line in summary[:8]))
+        box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        box.button(QMessageBox.StandardButton.Ok).setText('Continue…')
+        return box.exec() == QMessageBox.StandardButton.Ok
+
+    def report_lab(self, title: str, lines: list[str]) -> None:
+        box = QMessageBox(self)
+        box.setWindowTitle(title)
+        box.setText('\n'.join(lines[:12]))
+        box.exec()
 
     def show_requirements(self) -> None:
         self.tabs.setCurrentIndex(1)
@@ -510,6 +637,10 @@ class DesktopForgeWindow(QMainWindow):
             self._worker.wait()
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self._lab_worker is not None and self._lab_worker.isRunning():
+            self.status_label.setText('A lab-helper request is still running; wait for its result before closing.')
+            event.ignore()
+            return
         if self._worker is not None and self._worker.isRunning():
             self._closing = True
             self._set_choices_enabled(False)

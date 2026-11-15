@@ -27,6 +27,11 @@ def wait_for(predicate, timeout=5):
     assert predicate(), 'Qt operation did not complete'
 
 
+# These tests cover the read-only GUI; lab mode is tested in test_gui_lab.py.
+# Pin it off so results do not depend on whether this machine has the lab helper.
+NO_LAB = lambda: False  # noqa: E731
+
+
 @pytest.fixture(scope='module')
 def app():
     original = os.environ.get('QT_QPA_PLATFORM')
@@ -62,7 +67,7 @@ def inventory(tmp_path):
 
 @pytest.fixture
 def window(app, inventory):
-    widget = DesktopForgeWindow(detector=lambda: inventory, auto_refresh=False)
+    widget = DesktopForgeWindow(detector=lambda: inventory, auto_refresh=False, lab_available=NO_LAB)
     widget.show()
     yield widget
     if widget._worker is not None:
@@ -181,7 +186,7 @@ def test_refresh_ignores_duplicate_requests_and_close_waits_for_scan(app, invent
         entered.set()
         released.wait(3)
         return inventory
-    window = DesktopForgeWindow(detector=slow, auto_refresh=False)
+    window = DesktopForgeWindow(detector=slow, auto_refresh=False, lab_available=NO_LAB)
     window.show()
     try:
         window.refresh_inventory()
@@ -348,7 +353,7 @@ def test_gui_shows_an_intact_desktopforge_installation(app, inventory):
     summary['status'] = 'intact'
     installed['desktopforge_installations'] = {'installations': [summary]}
     installed['rendering'] = {'status': 'hardware', 'nodes': [{'renderer': 'virgl'}]}
-    widget = DesktopForgeWindow(detector=lambda: installed, auto_refresh=False)
+    widget = DesktopForgeWindow(detector=lambda: installed, auto_refresh=False, lab_available=NO_LAB)
     try:
         scan(widget)
         assert widget.plan['status'] == 'installed'
@@ -374,7 +379,7 @@ def test_gui_shows_graphics_capability(app, inventory):
     shown['rendering'] = {'status': 'software-only', 'nodes': [
         {'node': '/dev/dri/renderD128', 'renderer': 'llvmpipe (LLVM 21.1.0)', 'renderer_class': 'software',
          'device_software': True}]}
-    widget = DesktopForgeWindow(detector=lambda: shown, auto_refresh=False)
+    widget = DesktopForgeWindow(detector=lambda: shown, auto_refresh=False, lab_available=NO_LAB)
     try:
         scan(widget)
         assert widget.facts['graphics'].text() == 'Software rendering only · llvmpipe (LLVM 21.1.0)'

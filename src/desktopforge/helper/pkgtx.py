@@ -11,6 +11,8 @@ PACKAGE = re.compile(r'[a-z0-9][a-z0-9+._-]{0,99}')
 REPOSITORY = re.compile(r'[a-z0-9][a-z0-9_.-]{0,63}')
 KEY_ID = re.compile(r'[0-9a-f]{16}')
 DNF5 = '/usr/bin/dnf5'
+# Fail within minutes when mirrors are unreachable (defaults: 10 retries, 30 s timeout).
+NETWORK_LIMITS = ('--setopt=retries=2', '--setopt=timeout=20')
 RPM = '/usr/bin/rpm'
 ALLOWED_SECTIONS = {'Installing:', 'Installing dependencies:'}
 KNOWN_SECTIONS = ALLOWED_SECTIONS | {
@@ -42,7 +44,7 @@ def dnf5_argv(packages, repositories, simulate):
     _check(packages, repositories)
     return [DNF5, 'install', '--assumeno' if simulate else '--assumeyes',
             '--setopt=install_weak_deps=False', '--setopt=gpgcheck=True',
-            '--setopt=localpkg_gpgcheck=True', *[f'--repo={r}' for r in repositories],
+            '--setopt=localpkg_gpgcheck=True', *NETWORK_LIMITS, *[f'--repo={r}' for r in repositories],
             '--', *packages]
 
 

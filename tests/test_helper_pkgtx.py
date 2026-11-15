@@ -17,6 +17,7 @@ def test_argv_is_fixed_and_rejects_option_injection():
     argv = pkgtx.dnf5_argv(['niri', 'noctalia'], ['fedora', 'updates'], simulate=True)
     assert argv == ['/usr/bin/dnf5', 'install', '--assumeno', '--setopt=install_weak_deps=False',
                     '--setopt=gpgcheck=True', '--setopt=localpkg_gpgcheck=True',
+                    '--setopt=retries=2', '--setopt=timeout=20',
                     '--repo=fedora', '--repo=updates', '--', 'niri', 'noctalia']
     for bad in (['--nogpgcheck'], ['niri;rm'], ['-y'], ['Niri'], [], ['niri', '']):
         with pytest.raises(pkgtx.PackageError):

@@ -100,6 +100,10 @@ INTROSPECTION = f"""<node>
       <arg name="plan_hash" type="s" direction="in"/>
       <arg name="result" type="a{{sv}}" direction="out"/>
     </method>
+    <signal name="Progress">
+      <arg name="step" type="s"/>
+      <arg name="message" type="s"/>
+    </signal>
   </interface>
 </node>"""
 
@@ -241,6 +245,29 @@ KEPT_TEXT = {'modified': 'it was changed after installation', 'missing': 'it is 
              'unsafe': 'it is no longer a regular file', 'unreadable': 'it cannot be checked',
              'reused': 'it was already installed before this installation', 'changed': 'its version changed',
              'not-installed': 'it is no longer installed', 'required': 'other software needs it'}
+
+
+OPERATION_TEXT = {
+    'install_packages': 'Downloading and installing packages (this can take a few minutes)',
+    'create_file': 'Writing {name}', 'validate_config': 'Checking the configuration',
+    'register_session': 'Adding the login session', 'remove_file': 'Removing {name}',
+    'remove_packages': 'Removing packages', 'fail': 'Running an injected test failure',
+}
+STEP_TEXT = {
+    'approved': 'Approved', 'preflight_passed': 'Checks passed; nothing changed since the preview',
+    'applying': 'Starting', 'operation_succeeded': 'Done', 'operation_failed': 'Step failed',
+    'verifying': 'Verifying the result', 'completed': 'Completed',
+    'failed_recoverable': 'Failed; no changes were made',
+    'failed_manual_recovery': 'Failed after making changes; see the recovery notes',
+}
+
+
+def progress_text(step, fields):
+    """Plain-language progress for one journaled step (sent only to the requesting caller)."""
+    if step == 'operation_started':
+        template = OPERATION_TEXT.get(fields.get('op'), 'Working')
+        return template.format(name=fields.get('name') or '') + '…'
+    return STEP_TEXT.get(step, step.replace('_', ' ').capitalize())
 
 
 def describe_change(item):
@@ -417,6 +444,24 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
         log(f'sender={sender} rejected: {reason}')
         invocation.return_dbus_error(INTERFACE + '.Error.Rejected', reason)
         touch()
+
+    class ProgressJournal:
+        """Journal durably first, then tell the requesting caller (only) what happened."""
+
+        def __init__(self, journal, sender):
+            self.journal, self.sender = journal, sender
+            self.install_id = journal.install_id
+
+        def record(self, event, **fields):
+            self.journal.record(event, **fields)
+            try:
+                bus.emit_signal(self.sender, OBJECT_PATH, INTERFACE, 'Progress',
+                                GLib.Variant('(ss)', (event, progress_text(event, fields))))
+            except GLib.Error:
+                pass  # progress is best effort; the journal is authoritative
+
+        def close(self):
+            self.journal.close()
 
     def inspect(sessions_fd):
         """Fresh evidence and plan inputs, read through the given session-dir handle."""
@@ -610,7 +655,7 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                         'changes_made': False})
                 return
             try:
-                journal = Journal(journal_fd)
+                journal = ProgressJournal(Journal(journal_fd), caller.sender)
             except JournalError as exc:
                 finish({'outcome': 'rejected', 'detail': str(exc), 'changes_made': False})
                 return
