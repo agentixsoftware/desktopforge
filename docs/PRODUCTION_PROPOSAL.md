@@ -1,8 +1,9 @@
 # Proposal: taking DesktopForge from the VM lab to real machines
 
-Status: **proposal for review** (2026-11-15). Nothing here is implemented or
-decided. Installation stays disabled outside the disposable VMs until the
-decisions below are made and the work they imply has passed review.
+Status: **accepted** (2026-11-15). The owner accepted the recommendations for
+all decisions in section 9 (recorded there). Installation stays disabled
+outside the disposable VMs until the work they imply has passed review and a
+recipe is approved.
 
 ## 1. Summary
 
@@ -189,13 +190,15 @@ VMs cannot validate GPUs, hybrid graphics, suspend or real user setups. Proposed
 | 6. GUI gates (section 5) with clear "why not" messages | Small | Read-only unless every gate passes |
 | 7. Real-hardware run on a spare machine | Depends on hardware | First non-VM evidence |
 
-## 9. Decisions needed from you
+## 9. Decisions (accepted 2026-11-15)
 
-1. **Packaging:** native RPM via an explicitly added COPR first? (recommended: yes)
-2. **Approval:** evidence file + review + your signed sign-off, approved recipes
-   bundled only? (recommended: yes)
-3. **Scope of first real-machine support:** Fedora 45, GDM/SDDM, Niri + Noctalia,
-   Intel/AMD? (recommended: yes)
-4. **Hardware:** is there a spare machine or test account for real-GPU validation?
-5. **The reference laptop:** keep it read-only for the whole first release?
-   (recommended: yes, unless you decide otherwise later)
+1. **Packaging:** native RPMs (`desktopforge`, `desktopforge-helper`), first
+   from a COPR the user enables explicitly; later a Fedora package review.
+2. **Approval:** a committed evidence file from the lab matrix, code review and
+   the owner's signed sign-off. Only approved recipes are bundled; nothing is
+   downloaded at runtime.
+3. **First real-machine scope:** Fedora 45, GDM or SDDM, Niri + Noctalia,
+   Intel or AMD graphics, single-user desktop.
+4. **Hardware:** no spare machine or test account identified yet. Real-GPU
+   validation (step 7) waits until one is named; other steps proceed.
+5. **Reference laptop:** stays read-only for the whole first release.
