@@ -1,8 +1,10 @@
 # Privileged helper protocol proposal
 
-Status: design for review and VM experiments; no helper service or policy is
-installed, no apply API is implemented, and this proposal does not enable Install.
-The VM lab is available for testing these boundaries without changing the host.
+Status: design for review and VM experiments. No production helper or policy
+exists, no apply API is implemented, and this proposal does not enable Install.
+A non-mutating [lab authorization probe](LAB_AUTHPROBE.md) has validated bus-derived
+caller identity and Polkit checks (deny, dismiss, approve, no retention, caller
+disconnect) inside the disposable VM only.
 
 ## Mechanism and caller identity
 

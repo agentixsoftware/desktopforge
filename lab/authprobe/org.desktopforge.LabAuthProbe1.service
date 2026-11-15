@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.desktopforge.LabAuthProbe1
+Exec=/bin/false
+User=root
+SystemdService=desktopforge-lab-authprobe.service

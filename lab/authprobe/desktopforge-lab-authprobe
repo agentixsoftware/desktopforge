@@ -1,0 +1,223 @@
+#!/usr/bin/python3 -Is
+"""DesktopForge VM-lab authorization probe. Makes no system changes.
+
+A system-bus service with one argument-free method, Probe(). It derives the
+caller's identity only from the message bus (unique sender name and the bus
+daemon's UID record), asks Polkit whether that bus-name subject is authorized
+for a dedicated lab action, and returns the decision. It never accepts a
+caller-supplied UID, PID, HOME, path, command or recipe.
+
+This is a lab experiment for the disposable VM. It is not the production helper
+and is never reachable through production apply authorization. Keep this file
+self-contained (standard library + PyGObject) so it can be installed root-owned
+and run in isolated mode without importing from a user-writable checkout.
+"""
+import re
+import secrets
+import sys
+
+PROTOCOL_VERSION = 1
+BUS_NAME = 'org.desktopforge.LabAuthProbe1'
+OBJECT_PATH = '/org/desktopforge/LabAuthProbe1'
+INTERFACE = BUS_NAME
+ACTION_ID = 'org.desktopforge.lab.authprobe'
+MAX_IN_FLIGHT = 4
+IDLE_EXIT_SECONDS = 60
+POLKIT_TIMEOUT_MS = 5 * 60 * 1000
+ALLOW_USER_INTERACTION = 0x1
+UNIQUE_NAME = re.compile(r':[0-9]{1,10}\.[0-9]{1,10}')
+POLKIT_CANCELLED = 'org.freedesktop.PolicyKit1.Error.Cancelled'
+
+INTROSPECTION = f"""<node>
+  <interface name="{INTERFACE}">
+    <method name="Probe">
+      <arg name="result" type="a{{sv}}" direction="out"/>
+    </method>
+  </interface>
+</node>"""
+
+
+class ProbeRejected(Exception):
+    """Request refused before any authorization decision was attempted."""
+
+
+def validate_sender(sender):
+    """Only a bus-assigned unique connection name identifies a caller."""
+    if not isinstance(sender, str) or not UNIQUE_NAME.fullmatch(sender):
+        raise ProbeRejected('caller is not identified by a unique bus name')
+    return sender
+
+
+def validate_uid(uid):
+    if isinstance(uid, bool) or not isinstance(uid, int) or not 0 <= uid < 2**32 - 1:
+        raise ProbeRejected('bus daemon returned an invalid caller UID')
+    return uid
+
+
+def classify(reply=None, error_name=None):
+    """Map a Polkit reply or error to a fail-closed outcome.
+
+    reply is CheckAuthorization's (is_authorized, is_challenge, details).
+    Anything malformed or unexpected is an error, never an authorization.
+    """
+    if error_name is not None:
+        return 'cancelled' if error_name == POLKIT_CANCELLED else 'error'
+    try:
+        is_authorized, is_challenge, details = reply
+    except (TypeError, ValueError):
+        return 'error'
+    if not isinstance(is_authorized, bool) or not isinstance(is_challenge, bool) \
+            or not isinstance(details, dict):
+        return 'error'
+    if is_authorized is True:
+        return 'authorized'
+    if details.get('polkit.dismissed') == 'true':
+        return 'dismissed'
+    return 'challenge' if is_challenge else 'denied'
+
+
+def result_record(sender, uid, outcome):
+    """The complete, bounded response. 'authorized' is true for one outcome only."""
+    return {'protocol': PROTOCOL_VERSION, 'action': ACTION_ID, 'sender': sender,
+            'uid': uid, 'outcome': outcome, 'authorized': outcome == 'authorized',
+            'changes_made': False}
+
+
+class Admission:
+    """Bound concurrent interactive checks so callers cannot exhaust the probe."""
+
+    def __init__(self, limit=MAX_IN_FLIGHT):
+        self.limit = limit
+        self.active = {}
+
+    def admit(self, sender):
+        if sender in self.active:
+            raise ProbeRejected('a probe is already pending for this connection')
+        if len(self.active) >= self.limit:
+            raise ProbeRejected('too many pending probes')
+        token = 'dfprobe-' + secrets.token_hex(16)
+        self.active[sender] = token
+        return token
+
+    def release(self, sender):
+        self.active.pop(sender, None)
+
+    def __len__(self):
+        return len(self.active)
+
+
+def run_service():  # pragma: no cover - exercised in the disposable VM
+    from gi.repository import Gio, GLib
+
+    bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    loop = GLib.MainLoop()
+    admission = Admission()
+    idle = {'source': 0}
+    variant = {'protocol': 'u', 'action': 's', 'sender': 's', 'uid': 'u',
+               'outcome': 's', 'authorized': 'b', 'changes_made': 'b'}
+
+    def log(message):
+        print(message, flush=True)
+
+    def idle_expired():
+        idle['source'] = 0  # returning False removes this source
+        if not len(admission):
+            loop.quit()
+        return False
+
+    def schedule_idle_exit():
+        if idle['source']:
+            GLib.source_remove(idle['source'])
+        idle['source'] = GLib.timeout_add_seconds(IDLE_EXIT_SECONDS, idle_expired)
+
+    def finish(invocation, sender, uid, outcome, watch):
+        if watch:
+            bus.signal_unsubscribe(watch)
+        admission.release(sender)
+        record = result_record(sender, uid, outcome)
+        log(f'probe sender={sender} uid={uid} outcome={outcome}')
+        packed = {k: GLib.Variant(variant[k], v) for k, v in record.items()}
+        try:
+            invocation.return_value(GLib.Variant('(a{sv})', (packed,)))
+        except GLib.Error:
+            pass
+        schedule_idle_exit()
+
+    def reject(invocation, sender, reason):
+        log(f'probe sender={sender} rejected: {reason}')
+        invocation.return_dbus_error(INTERFACE + '.Error.Rejected', reason)
+        schedule_idle_exit()
+
+    def authorize(invocation, sender, uid):
+        try:
+            token = admission.admit(sender)
+        except ProbeRejected as exc:
+            reject(invocation, sender, str(exc))
+            return
+
+        def vanished(*_args):
+            # Caller left: withdraw any pending authentication dialog.
+            log(f'probe sender={sender} disconnected; cancelling')
+            bus.call('org.freedesktop.PolicyKit1', '/org/freedesktop/PolicyKit1/Authority',
+                     'org.freedesktop.PolicyKit1.Authority', 'CancelCheckAuthorization',
+                     GLib.Variant('(s)', (token,)), None, Gio.DBusCallFlags.NONE, -1, None, None)
+
+        watch = bus.signal_subscribe('org.freedesktop.DBus', 'org.freedesktop.DBus',
+                                     'NameOwnerChanged', '/org/freedesktop/DBus', sender,
+                                     Gio.DBusSignalFlags.NONE, vanished)
+        subject = ('system-bus-name', {'name': GLib.Variant('s', sender)})
+
+        def checked(connection, result):
+            try:
+                reply = connection.call_finish(result).unpack()[0]
+                outcome = classify(reply)
+            except GLib.Error as exc:
+                outcome = classify(error_name=Gio.DBusError.get_remote_error(exc))
+            finish(invocation, sender, uid, outcome, watch)
+
+        bus.call('org.freedesktop.PolicyKit1', '/org/freedesktop/PolicyKit1/Authority',
+                 'org.freedesktop.PolicyKit1.Authority', 'CheckAuthorization',
+                 GLib.Variant('((sa{sv})sa{ss}us)',
+                              (subject, ACTION_ID, {}, ALLOW_USER_INTERACTION, token)),
+                 GLib.VariantType('((bba{ss}))'), Gio.DBusCallFlags.NONE,
+                 POLKIT_TIMEOUT_MS, None, checked)
+
+    def method_call(_conn, sender, _path, _iface, method, _params, invocation):
+        if method != 'Probe':
+            invocation.return_dbus_error('org.freedesktop.DBus.Error.UnknownMethod', method)
+            return
+        try:
+            validate_sender(sender)
+        except ProbeRejected as exc:
+            reject(invocation, sender, str(exc))
+            return
+
+        def got_uid(connection, result):
+            try:
+                uid = validate_uid(connection.call_finish(result).unpack()[0])
+            except (GLib.Error, ProbeRejected) as exc:
+                reject(invocation, sender, f'caller identity unavailable: {exc}')
+                return
+            authorize(invocation, sender, uid)
+
+        bus.call('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus',
+                 'GetConnectionUnixUser', GLib.Variant('(s)', (sender,)),
+                 GLib.VariantType('(u)'), Gio.DBusCallFlags.NONE, 5000, None, got_uid)
+
+    node = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION)
+    bus.register_object(OBJECT_PATH, node.interfaces[0], method_call, None, None)
+
+    def name_lost(*_args):
+        log('bus name unavailable; exiting')
+        loop.quit()
+
+    Gio.bus_own_name_on_connection(bus, BUS_NAME, Gio.BusNameOwnerFlags.DO_NOT_QUEUE,
+                                   None, name_lost)
+    schedule_idle_exit()
+    log(f'lab authorization probe ready (protocol {PROTOCOL_VERSION}); makes no changes')
+    loop.run()
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(run_service())

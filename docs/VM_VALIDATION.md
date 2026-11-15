@@ -1,6 +1,8 @@
 # Installation validation in disposable VMs
 
-Status: preparation only. DesktopForge has no approved installation executor or
+Status: preparation. A KVM Fedora 45 GNOME/GDM baseline, verified cold
+backup/restore and a non-mutating [authorization probe](LAB_AUTHPROBE.md) now exist
+in the lab; no installation case below has been run. DesktopForge has no approved installation executor or
 validated install recipe. Read-only observations do not satisfy the tests below.
 This document scopes the next stage; it does not authorize changes to the host.
 

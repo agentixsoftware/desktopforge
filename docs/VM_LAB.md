@@ -1,7 +1,12 @@
 # Local disposable Fedora VM lab
 
-The local lab uses QEMU software emulation as the development session cannot
-access `/dev/kvm`. It needs no host sudo, libvirt setup, system package installation
+Current state (2026-11-14): the KVM profile below is the working lab. The agent
+session can now open `/dev/kvm` and boots it headless itself; screenshots come
+from QMP. A verified cold backup `gnome-baseline-2026-11-14` holds the configured
+GNOME/GDM baseline (see backups at the end). Older notes follow.
+
+The local lab originally used QEMU software emulation because the development
+session could not access `/dev/kvm`. It needs no host sudo, libvirt setup, system package installation
 or graphical-session access. Guest administrative commands use a dedicated guest
 account and apply only inside the disposable guest.
 

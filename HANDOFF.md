@@ -5,6 +5,26 @@ This is a continuation guide for the existing checkout and disposable VM lab.
 Recheck runtime state and permissions before acting; the GUI and VM have been
 verified, but they are not currently guaranteed to be running.
 
+## 0. Latest update — supersedes conflicting statements below
+
+Later session, 2026-11-14:
+
+- Git metadata writes, pushes and `/dev/kvm` all work from the agent session.
+  The agent boots the KVM guest itself, headless, in a background task:
+  `./scripts/desktopforge-vm --profile kvm --accelerator kvm start`. No host-terminal
+  launch is needed unless that changes; screenshots come from QMP.
+- `-no-reboot` is gone: guest reboots reset in place (verified).
+- Verified cold backup `gnome-baseline-2026-11-14` (configured GNOME/GDM, refreshed
+  evidence, before any helper install). Restore with
+  `./scripts/desktopforge-vm --profile kvm restore gnome-baseline-2026-11-14`
+  after a graceful `stop`. Restore round trip and boot from it were verified.
+- Refreshed guest evidence is in the ignored `.desktopforge-vm/evidence/2026-11-14-refresh/`.
+- The lab authorization probe is implemented and tested in the guest; see
+  `docs/LAB_AUTHPROBE.md`. It is installed in the running guest's working disk,
+  not in the baseline backup.
+- The guest checkout is still a transferred archive, not a Git clone; see
+  `~/desktopforge/SOURCE_REVISION` inside the guest.
+
 ## 1. Read this first
 
 - Repository: <https://github.com/agentixsoftware/desktopforge>

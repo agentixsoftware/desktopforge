@@ -1,0 +1,32 @@
+[Unit]
+Description=DesktopForge VM-lab authorization probe (makes no changes)
+
+[Service]
+Type=dbus
+BusName=org.desktopforge.LabAuthProbe1
+ExecStart=/usr/bin/python3 -Is /usr/local/libexec/desktopforge-lab/desktopforge-lab-authprobe
+# Root UID is needed only so Polkit accepts checks for another subject.
+# No capabilities, no writable filesystem, no network.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0077
