@@ -65,7 +65,12 @@ def start():
     try:
         with (ROOT / 'run/qemu.log').open('ab') as log:
             print('Starting disposable guest; SSH on 127.0.0.1:22220', flush=True)
-            return subprocess.call(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+            process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+            while True:
+                try:
+                    return process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    print('VM supervisor active; guest console and SSH remain available when booted.', flush=True)
     finally:
         server.shutdown()
 

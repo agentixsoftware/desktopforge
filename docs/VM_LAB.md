@@ -73,3 +73,12 @@ Capture another record after configuring GNOME/GDM and before any DesktopForge
 installation test. The pre-desktop provisioning record is not that installation
 baseline. Compare records and graphical behavior; hashes alone do not establish
 that an existing desktop remains usable.
+
+The initial tool-managed process was terminated twice (exit 143). Treat process
+lifetime as an environment constraint, not a guest installation result. The control
+helper emits supervisor heartbeats every 30 seconds, and a foreground terminal
+session is used for the current recovery attempt. If the tool runtime terminates
+it again, launch the same foreground `start` command from an ordinary host terminal
+and leave that terminal open; SSH/QMP administration can then continue separately.
+Downloaded packages remain in the guest cache, but confirm transaction state after
+any unexpected shutdown before resuming package installation.
