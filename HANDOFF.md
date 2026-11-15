@@ -13,11 +13,12 @@ QT_QPA_PLATFORM=offscreen .venv-gui/bin/python -m pytest -q   # expect: all pass
 ./scripts/desktopforge-vm --profile kvm backups                # four verified backups
 ```
 
-Guest state after the removal run: restored from `pre-niri-2026-11-14`, then
-install → remove → reinstall → edit config → remove. Niri is not installed; the
-edited `/etc/desktopforge/sessions/niri-noctalia.kdl` was deliberately kept, so a
-reinstall is blocked until it is moved. Records: two installs, two removals.
-The `end-of-day-2026-11-15` backup still has Niri installed.
+Guest state at the latest pause: Niri + Noctalia **installed** by install
+`04a47e11ede04d71917f2c14c7c16a0d` (7 packages recorded as installed; intact).
+The history holds three earlier installs, each removed, with removal records.
+The edited config from the kept-file test is at `/root/kept/` in the guest. Reboot,
+failed-install/retry and dependency re-verification were run (`docs/LAB_HELPER.md`,
+`docs/INSTALL_RECORDS.md`). The `end-of-day-2026-11-15` backup still has Niri installed.
 
 **Removal is built and VM-verified** (2026-11-15 evening; see `docs/REMOVAL.md`).
 Pick the next item from section 5 with the user.
@@ -129,12 +130,12 @@ Bugs found and fixed through VM runs:
 
 1. **Removal:** done (`docs/REMOVAL.md`). Follow-ups: GUI presentation,
    later-installed dependents in the guest, reboot between install and removal.
-2. **Remaining Milestone 2 matrix:**
-   - guest reboot with the added session
-   - a repeat attempt after a failed install
-   - re-verifying dependency packages (only niri/noctalia are re-checked now)
-   - an SDDM baseline VM
-   - repair
+2. **Remaining Milestone 2 work:**
+   - Done: reboot, failed install with retry (network outage), dependency re-verification.
+   - Package transactions need a timeout and visible progress; an outage gave ~10 minutes of silence.
+   - The GUI cannot install or remove yet; this needs a design decision with the user.
+   - SDDM baseline VM.
+   - Repair.
 3. **Product decisions already made:**
    - **Option A:** never reset the AccountsService remembered session; report
      failed logins instead.
