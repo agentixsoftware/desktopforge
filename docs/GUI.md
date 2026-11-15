@@ -130,3 +130,30 @@ key trust are not resolved. Duplicate IDs remain visible for review. Files are
 read with size limits and without following symlinks; invalid files are reported
 without including their contents. No URLs, credentials or key locations are
 collected. Repository declarations cannot certify installed-package provenance.
+
+## VM lab mode
+
+When the VM-lab helper (`org.desktopforge.LabHelper1`) is installed on the
+system bus, which only happens inside the disposable VM, the GUI shows **VM LAB
+MODE**:
+
+- **Install in VM lab…** for combinations the helper has a recipe for
+  (currently Niri + Noctalia on Fedora 45), or **Remove from VM lab…** for a
+  recorded DesktopForge installation.
+- The button runs the helper's preview off the GUI thread and shows its full
+  summary (or its blockers) for review. **Continue…** requests apply, and Polkit
+  asks for authentication. The status bar shows the helper's step-by-step
+  progress, a result dialog lists what changed and the record path, and the
+  inventory is rescanned.
+- One bus connection is used for preview and apply (`desktopforge.labclient`);
+  the helper's approval token is bound to it.
+
+Without the helper nothing changes: **READ-ONLY PREVIEW** and "Installation
+unavailable". Production installation remains disabled.
+
+Verified in the KVM guest (2026-11-15): GUI removal and GUI install of Niri +
+Noctalia, with live progress, result dialogs and rescans. With 3D enabled the
+agent cannot screenshot GNOME, so it pressed buttons by accessible name over
+AT-SPI (`lab/tools/atspi-press.py`, GUI launched with
+`QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`). It typed the password only after the
+helper journaled "authorizing" (`lab/tools/qmp-sendkeys.py --secret`).

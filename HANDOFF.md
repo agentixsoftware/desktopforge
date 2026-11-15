@@ -13,8 +13,8 @@ QT_QPA_PLATFORM=offscreen .venv-gui/bin/python -m pytest -q   # expect: all pass
 ./scripts/desktopforge-vm --profile kvm backups                # four verified backups
 ```
 
-Guest state at the latest pause: Niri + Noctalia **installed** by install
-`04a47e11ede04d71917f2c14c7c16a0d` (7 packages recorded as installed; intact).
+Guest state at the latest pause: Niri + Noctalia **installed** through the GUI by install
+`4902a2f85f764242b32775dc0c02bb49` (7 packages recorded as installed; intact).
 The history holds three earlier installs, each removed, with removal records.
 The edited config from the kept-file test is at `/root/kept/` in the guest. Reboot,
 failed-install/retry and dependency re-verification were run (`docs/LAB_HELPER.md`,
@@ -51,8 +51,10 @@ Control (agent checkout): `status`, `ssh '<cmd>'`, `screenshot`, `stop`,
 Backup and restore refuse while QEMU is running. Stop gracefully, then wait
 until `status` reports "Connection refused".
 
-Agent helper scripts in the session scratchpad may be gone after a reboot.
-They were short and easy to recreate:
+Agent VM tools are kept in `lab/tools/`: `qmp-sendkeys.py` for keystrokes, with the
+password read from file and never echoed, and `atspi-press.py` for pressing GUI
+buttons by accessible name inside the guest. Other small scratchpad helpers
+were easy to recreate:
 - QMP send-key typing from the private password file, never echoed
 - screenshot to PNG via PIL
 - `niri msg` screenshot
@@ -132,8 +134,9 @@ Bugs found and fixed through VM runs:
    later-installed dependents in the guest, reboot between install and removal.
 2. **Remaining Milestone 2 work:**
    - Done: reboot, failed install with retry (network outage), dependency re-verification.
-   - Package transactions need a timeout and visible progress; an outage gave ~10 minutes of silence.
-   - The GUI cannot install or remove yet; this needs a design decision with the user.
+   - GUI lab mode (decision 2a) is done and VM-verified: install and remove from the window via the
+     lab helper (`docs/GUI.md`). Production installation stays disabled.
+   - DNF network limits are done (`retries=2`, `timeout=20`), and helper `Progress` signals are shown in the GUI and CLI.
    - SDDM baseline VM.
    - Repair.
 3. **Product decisions already made:**
