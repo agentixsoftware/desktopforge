@@ -29,9 +29,12 @@ CONFIG_DIR = '/etc/desktopforge'
 SESSION_CONFIG = CONFIG_DIR + '/sessions'
 TEMPLATES = '/usr/local/lib/desktopforge-lab/templates'
 NIRI_CONFIG = SESSION_CONFIG + '/niri-noctalia.kdl'
-NIRI_EXEC = '/usr/bin/niri --session --config ' + NIRI_CONFIG
+# The session starts the DesktopForge launcher, which runs niri as a transient
+# user unit wired into graphical-session.target and cleans up after logout.
+SESSION_LAUNCHER = '/usr/local/libexec/desktopforge-lab/desktopforge-session'
+NIRI_EXEC = SESSION_LAUNCHER + ' niri-noctalia'
 FEDORA45_KEY_ID = '655a4b02f577861e'
-ALLOWED_COMMANDS = frozenset({'/usr/bin/gnome-session', '/usr/bin/niri', NIRI_EXEC})
+ALLOWED_COMMANDS = frozenset({'/usr/bin/gnome-session', SESSION_LAUNCHER, NIRI_EXEC})
 PACKAGE_TIMEOUT_SECONDS = 900
 CORE_PATH = '/usr/local/lib/desktopforge-lab/python'
 STATE_DIR = '/var/lib/desktopforge-lab'
@@ -57,7 +60,7 @@ RECIPES = {
             'Comment': 'DesktopForge lab test session; starts the standard GNOME session',
             'Exec': '/usr/bin/gnome-session', 'TryExec': '/usr/bin/gnome-session',
             'Type': 'Application', 'DesktopNames': 'GNOME'}}]},
-    'fedora45-niri-noctalia-lab': {'revision': 1, 'signer': FEDORA45_KEY_ID, 'operations': [
+    'fedora45-niri-noctalia-lab': {'revision': 2, 'signer': FEDORA45_KEY_ID, 'operations': [
         {'op': 'install_packages', 'packages': ['niri', 'noctalia'], 'repositories': ['fedora', 'updates']},
         {'op': 'create_file', 'target': 'session-config', 'name': 'niri-noctalia.kdl', 'mode': 0o644,
          'template': 'niri-noctalia.kdl'},
@@ -65,7 +68,7 @@ RECIPES = {
         {'op': 'register_session', 'target': 'sessions', 'id': 'desktopforge-niri-noctalia', 'entry': {
             'Name': 'Niri + Noctalia (DesktopForge)',
             'Comment': 'Niri compositor with the Noctalia shell, added by DesktopForge',
-            'Exec': NIRI_EXEC, 'TryExec': '/usr/bin/niri',
+            'Exec': NIRI_EXEC, 'TryExec': SESSION_LAUNCHER,
             'Type': 'Application', 'DesktopNames': 'niri'}}],
      'notes': ['Installing the niri package also adds Fedora\'s own "Niri" login session '
                '(owned by that package; it uses ~/.config/niri, not the DesktopForge config).',
@@ -159,9 +162,12 @@ def summarize(plan):
         if op['op'] == 'install_packages':
             requested = set(op['packages'])
             new = {r['name'] for r in op['expected']}
-            lines.append('Install from Fedora repositories (' + ', '.join(op['repositories']) +
-                         f'), signatures required, signer key {plan.get("signer")}, no weak dependencies: ' +
-                         ', '.join(f'{r["name"]} {r["evr"]} [{r["repo"]}]' for r in op['expected']))
+            if op['expected']:
+                lines.append('Install from Fedora repositories (' + ', '.join(op['repositories']) +
+                             f'), signatures required, signer key {plan.get("signer")}, no weak dependencies: ' +
+                             ', '.join(f'{r["name"]} {r["evr"]} [{r["repo"]}]' for r in op['expected']))
+            else:
+                lines.append('No packages need to be installed.')
             reused = sorted(requested - new)
             if reused:
                 lines.append('Already installed and reused unchanged: ' + ', '.join(reused))

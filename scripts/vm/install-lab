@@ -48,6 +48,8 @@ COMPONENTS = {
                                     'org.desktopforge.lab.apply-synthetic', 'desktopforge-lab-helper.service'),
                   'lab/helper/org.desktopforge.lab.install-session.policy':
                       ('/usr/share/polkit-1/actions/org.desktopforge.lab.install-session.policy', 0o644),
+                  'src/desktopforge/loginsession.py':
+                      (f'{LIBEXEC}/desktopforge-session', 0o755),
                   'lab/helper/templates/niri-noctalia.kdl':
                       ('/usr/local/lib/desktopforge-lab/templates/niri-noctalia.kdl', 0o644),
                   'lab/helper/org.desktopforge.lab.register-session.policy':

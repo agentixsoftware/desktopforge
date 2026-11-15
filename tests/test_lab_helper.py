@@ -85,8 +85,8 @@ def test_session_recipe_renders_with_the_lab_allowlist(helper):
     op = helper['RECIPES']['lab-session-gnome']['operations'][0]
     assert sessions.render(op['entry'], helper['ALLOWED_COMMANDS']).startswith(b'[Desktop Entry]\nName=')
     assert helper['ALLOWED_COMMANDS'] == frozenset({
-        '/usr/bin/gnome-session', '/usr/bin/niri',
-        '/usr/bin/niri --session --config /etc/desktopforge/sessions/niri-noctalia.kdl'})
+        '/usr/bin/gnome-session', '/usr/local/libexec/desktopforge-lab/desktopforge-session',
+        '/usr/local/libexec/desktopforge-lab/desktopforge-session niri-noctalia'})
 
 
 def test_summary_states_every_operation(helper):
@@ -153,6 +153,7 @@ def test_installer_ships_every_core_module_and_helper_file():
     lab = {p.name for p in LAB.iterdir() if p.is_file()} - {'desktopforge-lab-client'}
     assert lab <= {Path(source).name for source in files}
     assert 'lab/helper/templates/niri-noctalia.kdl' in files
+    assert files['src/desktopforge/loginsession.py'] == ('/usr/local/libexec/desktopforge-lab/desktopforge-session', 0o755)
     for relative in files:
         assert (REPO / relative).is_file(), relative
 
@@ -170,7 +171,14 @@ def test_niri_recipe_plan_embeds_resolution_and_config(helper):
     assert [op['op'] for op in ops] == ['install_packages', 'create_file', 'validate_config', 'register_session']
     assert ops[0]['expected'] == RESOLVED and ops[0]['repositories'] == ['fedora', 'updates']
     assert ops[1]['content'] == TEMPLATES['niri-noctalia.kdl'] and result['signer'] == '655a4b02f577861e'
-    assert ops[3]['entry']['Exec'] == '/usr/bin/niri --session --config /etc/desktopforge/sessions/niri-noctalia.kdl'
+    assert ops[3]['entry']['Exec'] == '/usr/local/libexec/desktopforge-lab/desktopforge-session niri-noctalia'
+    assert ops[3]['entry']['TryExec'] == '/usr/local/libexec/desktopforge-lab/desktopforge-session'
+
+
+def test_launcher_profile_matches_recipe_config_path(helper):
+    from desktopforge import loginsession
+    argv = loginsession.PROFILES['niri-noctalia']['argv']
+    assert argv[-1] == helper['NIRI_CONFIG'] and argv[0] == '/usr/bin/niri'
 
 
 def test_niri_recipe_plan_hash_changes_with_resolution(helper):
@@ -232,3 +240,10 @@ def test_rpm_queries_also_run_outside_the_seccomp_sandbox():
     source = (LAB / 'desktopforge-lab-helper').read_text()
     body = source[source.index('def runner('):source.index('def validate_niri(')]
     assert 'return run_root(argv)' in body and 'def run_query' not in source
+
+
+def test_summary_when_every_package_is_already_installed(helper):
+    result, _ = plan(helper, 'fedora45-niri-noctalia-lab', resolve=lambda p, r: ([], []))
+    summary = helper['summarize'](result)
+    assert summary[0] == 'No packages need to be installed.'
+    assert summary[1] == 'Already installed and reused unchanged: niri, noctalia'
