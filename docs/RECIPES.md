@@ -156,3 +156,11 @@ Plans expose `requirement_assessment` with per-command roles and observed,
 missing, unknown or mismatch findings. Missing inventory evidence stays unknown;
 it is not proof of absence. RPM ownership must uniquely match the expected package.
 Even all-observed findings leave compatibility unverified and installation blocked.
+
+The Fedora 45 Niri/Ryoku/SDDM reference recipe now also declares `niri`,
+`niri-session` and `ryoku-shell` requirements, with no package version policy or
+installation operations. The reference service invokes `ryoku-shell daemon`;
+Ryoku's [component list](https://ryoku.dev/) identifies `ryoku` as the management
+CLI. Finding that CLI does not satisfy the shell-launcher requirement. These are
+reference observations, not a reviewed additive installation or a complete list
+of Ryoku's runtime dependencies and hooks.

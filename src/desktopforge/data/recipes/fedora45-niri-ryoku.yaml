@@ -1,13 +1,48 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "fedora45-niri-ryoku",
-  "revision": 1,
+  "revision": 2,
   "status": "unverified",
   "constraints": {
     "distribution": "fedora",
-    "versions": ["45"],
+    "versions": [
+      "45"
+    ],
     "compositor": "niri",
     "shell": "ryoku",
-    "display_managers": ["sddm"]
+    "display_managers": [
+      "sddm"
+    ]
+  },
+  "operations": [],
+  "requirements": [
+    {
+      "executable": "niri",
+      "role": "compositor",
+      "package": "niri",
+      "version_major": null
+    },
+    {
+      "executable": "niri-session",
+      "role": "session_launcher",
+      "package": "niri",
+      "version_major": null
+    },
+    {
+      "executable": "ryoku-shell",
+      "role": "shell_launcher",
+      "package": "ryoku-shell",
+      "version_major": null
+    }
+  ],
+  "review": {
+    "sources": [
+      "https://ryoku.dev/"
+    ],
+    "blockers": [
+      "Reference-only requirements: no additive Ryoku installation or service lifecycle procedure has been validated.",
+      "The reference ryoku-shell.service starts ryoku-shell daemon and has bootstrap/stop hooks; command ownership alone does not establish safe session reuse.",
+      "The ryoku management CLI cannot substitute for ryoku-shell; no Ryoku package version policy has been validated."
+    ]
   }
 }

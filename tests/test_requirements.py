@@ -82,3 +82,17 @@ def test_observed_requirements_never_enable_plan(tmp_path):
     plan = build_plan(data, 'niri', 'noctalia')
     assert all(f['status'] == 'observed' for f in plan['requirement_assessment']['findings'])
     assert plan['status'] == 'blocked' and plan['executable'] is False
+
+
+def test_ryoku_management_cli_does_not_satisfy_reference_launcher(tmp_path):
+    data = detect_system(tmp_path, environ={}, which=lambda _: None)
+    data['distribution'].update(id='fedora', version_id='45')
+    data['display_manager']['name'] = 'sddm'
+    data['command_evidence']['ryoku'] = {'found': True, 'path': '/usr/bin/ryoku'}
+    data['command_evidence']['ryoku-shell'] = {'found': False, 'path': None}
+    plan = build_plan(data, 'niri', 'ryoku')
+    finding = next(f for f in plan['requirement_assessment']['findings'] if f['role'] == 'shell_launcher')
+    assert finding['executable'] == 'ryoku-shell'
+    assert finding['status'] == 'missing'
+    assert plan['operations'] == []
+    assert plan['status'] == 'blocked' and not plan['executable']
