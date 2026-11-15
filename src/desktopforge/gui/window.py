@@ -413,12 +413,15 @@ class DesktopForgeWindow(QMainWindow):
                 versions = ', '.join(f"{row['epoch']}:{row['version']}-{row['release']} ({row['architecture']})" for row in package['records'])
                 package_lines.append(f"{package['name']}: {package['status']}" + (f' — {versions}' if versions else ''))
                 package_lines.append(package['reason'])
-                ownership = package.get('executable_ownership', {})
-                path = ownership.get('path') or 'path unavailable'
-                owner_text = ', '.join(ownership.get('owners', [])) or 'owner unknown'
-                match_text = 'matches package name' if package.get('owner_matches_package') else 'package match not established'
-                package_lines.append(f"Executable owner: {path} → {owner_text} · {match_text}")
-                package_lines.append(ownership.get('reason', ''))
+                ownerships = package.get('executable_ownerships') or [package.get('executable_ownership', {})]
+                for ownership in ownerships:
+                    path = ownership.get('path') or 'path unavailable'
+                    command = ownership.get('executable')
+                    owner_text = ', '.join(ownership.get('owners', [])) or 'owner unknown'
+                    match_text = 'matches package name' if ownership.get('owner_matches_package') else 'package match not established'
+                    command_text = f"{command}: " if command else ''
+                    package_lines.append(f"Executable owner: {command_text}{path} → {owner_text} · {match_text}")
+                    package_lines.append(ownership.get('reason', ''))
                 package_lines.append(('Reuse needs verification' if package['reuse'] == 'candidate_unverified' else 'No reuse candidate established') + '\n')
             package_lines.extend(assessment.get('limitations', []))
             self.packages.setPlainText('\n'.join(package_lines) or 'Package evidence unavailable.')

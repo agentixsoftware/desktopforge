@@ -291,3 +291,17 @@ def test_package_tab_shows_versions_without_enabling_install(window, inventory):
     assert not window.install_button.isEnabled()
     window._scan_failed('Read failed')
     assert window.packages.toPlainText() == ''
+
+
+def test_packages_tab_displays_both_ryoku_command_owners(window, inventory):
+    inventory['package_inventory']['executable_ownership'] = [
+        {'component': 'shell:ryoku', 'executable': command, 'path': '/usr/bin/' + command,
+         'status': 'owned', 'owners': [command], 'reason': 'Local RPM owner.'}
+        for command in ('ryoku', 'ryoku-shell')]
+    scan(window)
+    window.shell.setCurrentIndex(window.shell.findData('ryoku'))
+    text = window.packages.toPlainText()
+    assert 'ryoku: /usr/bin/ryoku → ryoku · package match not established' in text
+    assert 'ryoku-shell: /usr/bin/ryoku-shell → ryoku-shell · matches package name' in text
+    assert not window.install_button.isEnabled()
+    assert window.plan['status'] == 'blocked'

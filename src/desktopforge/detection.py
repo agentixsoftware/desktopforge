@@ -119,16 +119,22 @@ def detect_system(
     shell_bins = SHELL_EXECUTABLES
     shell_evidence = {}
     for name, executables in shell_bins.items():
-        matches = [(exe, lookup(exe)) for exe in executables]
-        found = next(((exe, path) for exe, path in matches if path), None)
-        resolved = None
-        if found and root == Path("/"):
-            try:
-                resolved = str(Path(found[1]).resolve(strict=True))
-            except (OSError, RuntimeError):
-                pass
-        shell_evidence[name] = {"executables_checked": list(executables), "found": found is not None,
-                                "executable": found[0] if found else None, "path": resolved}
+        matches = []
+        for executable in executables:
+            discovered = lookup(executable)
+            if not discovered:
+                continue
+            resolved = None
+            if root == Path("/"):
+                try:
+                    resolved = str(Path(discovered).resolve(strict=True))
+                except (OSError, RuntimeError):
+                    pass
+            matches.append({"executable": executable, "path": resolved, "found": True})
+        first = matches[0] if matches else {}
+        shell_evidence[name] = {"executables_checked": list(executables), "found": bool(matches),
+                                "matches": matches, "executable": first.get("executable"),
+                                "path": first.get("path")}
     wayland_sessions = _session_entries(root / "usr/share/wayland-sessions")
     process_evidence = inspect_processes(root / "proc") if root == Path("/") else []
     analysis = session_analysis(wayland_sessions, env, process_evidence)

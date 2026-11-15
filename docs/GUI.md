@@ -108,8 +108,10 @@ Vendor and source-RPM header fields are available in JSON details. RPM ownership
 does not prove the originating repository, signature trust or safe reuse. A
 package name can differ from its command name: on the reference Fedora system,
 `/usr/bin/ryoku` is owned by `ryoku`, while the installed `ryoku-shell` package
-owns `/usr/bin/ryoku-shell`. This is reported as an owner mismatch for the
-resolved command path, not as evidence that the shell package is missing.
+owns `/usr/bin/ryoku-shell`. Both discovered commands appear separately, with
+their resolved paths and individual package matches. A different owner for one
+command does not hide a matching owner for another command. The detector does
+not infer command roles (launcher or management tool) from their names.
 Package presence never enables Install or satisfies recipe validation.
 The queries use RPM's documented [query operation](https://rpm.org/docs/6.0.x/man/rpm.8)
 and [query format](https://rpm.org/docs/6.0.x/man/rpm-queryformat.7).

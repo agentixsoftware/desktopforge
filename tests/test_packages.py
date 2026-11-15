@@ -114,3 +114,35 @@ def test_package_inventory_queries_only_resolved_paths(tmp_path):
 def test_malformed_header_rejected(text):
     with pytest.raises(ValueError):
         parse_rpm_records(text, 'niri')
+
+
+def test_all_shell_commands_keep_distinct_owners_and_unverified_reuse(tmp_path):
+    def run(args, **kwargs):
+        if '--whatprovides' in args:
+            return SimpleNamespace(returncode=0, stderr='', stdout=Path(args[-1]).name + '\n')
+        return SimpleNamespace(returncode=0, stderr='', stdout=response(args[-1]))
+    evidence = {'shell:ryoku': {'found': True, 'matches': [
+        {'executable': 'ryoku', 'path': '/usr/bin/ryoku'},
+        {'executable': 'ryoku-shell', 'path': '/usr/bin/ryoku-shell'}]}}
+    inventory = inspect_packages('fedora', tmp_path, runner=run, executables=evidence)
+    assessment = package_assessment({'package_inventory': inventory}, 'niri', 'ryoku')
+    shell = assessment['packages'][1]
+    assert [(item['executable'], item['owners'], item['owner_matches_package'])
+            for item in shell['executable_ownerships']] == [
+        ('ryoku', ['ryoku'], False), ('ryoku-shell', ['ryoku-shell'], True)]
+    assert shell['owner_matches_package'] is True
+    assert shell['reuse'] == 'candidate_unverified'
+    assert assessment['status'] == 'unverified'
+
+
+def test_one_unresolved_match_does_not_hide_another_owner(tmp_path):
+    def run(args, **kwargs):
+        if '--whatprovides' in args:
+            return SimpleNamespace(returncode=0, stderr='', stdout='ryoku-shell\n')
+        return SimpleNamespace(returncode=0, stderr='', stdout=response(args[-1]))
+    inventory = inspect_packages('fedora', tmp_path, runner=run, executables={
+        'shell:ryoku': {'found': True, 'matches': [
+            {'executable': 'ryoku', 'path': None},
+            {'executable': 'ryoku-shell', 'path': '/usr/bin/ryoku-shell'}]}})
+    evidence = inventory['executable_ownership']
+    assert [item['status'] for item in evidence] == ['unknown', 'owned']

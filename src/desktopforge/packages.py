@@ -96,12 +96,16 @@ def inspect_packages(distribution: str | None, root: Path = Path('/'), *, runner
     if enabled and executables:
         for component, evidence in sorted(executables.items()):
             if isinstance(evidence, dict) and evidence.get('found'):
-                path = evidence.get('path')
-                if path:
-                    paths.append({'component': component, **query_file_owners(path, runner=run)})
-                else:
-                    paths.append({'component': component, 'path': None, 'status': 'unknown',
-                                  'owners': [], 'reason': 'Executable discovery did not provide its resolved path.'})
+                # Older inventories have one path; new shell inventories retain every match.
+                matches = evidence.get('matches', [evidence])
+                for match in matches:
+                    path = match.get('path')
+                    identity = {'component': component, 'executable': match.get('executable')}
+                    if path:
+                        paths.append({**identity, **query_file_owners(path, runner=run)})
+                    else:
+                        paths.append({**identity, 'path': None, 'status': 'unknown',
+                                      'owners': [], 'reason': 'Executable discovery did not provide its resolved path.'})
     return {'schema_version': 1, 'manager': 'rpm' if supported else None,
             'status': 'observed' if all(p['status'] != 'unknown' for p in packages) else 'incomplete',
             'packages': packages, 'executable_ownership': paths,
@@ -117,12 +121,15 @@ def package_assessment(inventory: dict, compositor: str, shell: str) -> dict:
         row = observed.get(name, {'name': name, 'status': 'unknown', 'records': [],
                                   'reason': 'No installed-package evidence is available.'})
         component = compositor if name == compositor else f'shell:{shell}'
-        owners = next((item for item in inventory.get('package_inventory', {}).get('executable_ownership', [])
-                       if item.get('component') == component), None)
-        ownership = {'status': 'unknown', 'path': None, 'owners': [],
-                     'reason': 'No RPM executable-owner evidence is available.'} if owners is None else owners
+        ownerships = [{**item, 'owner_matches_package': name in item.get('owners', [])}
+                      for item in inventory.get('package_inventory', {}).get('executable_ownership', [])
+                      if item.get('component') == component]
+        ownership = ownerships[0] if ownerships else {
+            'status': 'unknown', 'path': None, 'owners': [],
+            'reason': 'No RPM executable-owner evidence is available.'}
         packages.append({**row, 'executable_ownership': ownership,
-                         'owner_matches_package': name in ownership.get('owners', []),
+                         'executable_ownerships': ownerships,
+                         'owner_matches_package': any(item['owner_matches_package'] for item in ownerships),
                          'reuse': 'candidate_unverified' if row['status'] == 'installed' else 'unavailable'})
     return {'status': 'unverified', 'packages': packages,
             'limitations': list(LIMITATIONS)}

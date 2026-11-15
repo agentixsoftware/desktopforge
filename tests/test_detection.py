@@ -50,3 +50,14 @@ def test_unrelated_display_manager_name_is_not_classified(tmp_path):
     (directory / 'display-manager.service').symlink_to('/usr/lib/systemd/system/not-sddm.service')
     result = detect_system(root=tmp_path, environ={}, which=lambda _: None)
     assert result['display_manager']['name'] == 'not-sddm'
+
+
+def test_shell_discovery_keeps_every_matching_command(tmp_path):
+    inventory = detect_system(root=tmp_path, environ={},
+        which=lambda name: '/usr/bin/' + name if name in ('ryoku', 'ryoku-shell') else None)
+    evidence = inventory['shell_executables']['ryoku']
+    assert evidence['found'] is True
+    assert [item['executable'] for item in evidence['matches']] == ['ryoku', 'ryoku-shell']
+    # Fixture roots never resolve or query paths on the host.
+    assert all(item['path'] is None for item in evidence['matches'])
+    assert inventory['package_inventory']['executable_ownership'] == []
