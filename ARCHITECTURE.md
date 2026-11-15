@@ -110,3 +110,11 @@ Later guided execution can call the reviewed core interfaces once available.
 Existing plan approval and Polkit authorization requirements apply, and the
 privileged helper continues to reject arbitrary commands and unrestricted paths.
 An agent cannot promote a recipe to validated support or bypass these boundaries.
+
+## Helper protocol proposal
+
+The [helper protocol proposal](docs/HELPER_PROTOCOL.md) defines candidate caller
+identity, request/approval binding, revalidation and operation boundaries for the
+next VM experiments. It is a design proposal, not an implemented or deployed
+privileged API. The [disposable VM lab](docs/VM_LAB.md) provides guest-only
+administration and preservation records for validation.

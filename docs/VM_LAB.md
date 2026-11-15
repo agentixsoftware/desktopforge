@@ -62,3 +62,14 @@ installation. Provision and verify the GNOME/GDM baseline inside the guest befor
 using it for preservation tests. Capture its configuration before introducing
 Niri/Noctalia. Keep image verification and guest setup separate from DesktopForge
 recipe validation. See [VM validation gates](VM_VALIDATION.md).
+
+## Preservation records
+
+`scripts/vm/record-baseline.py` collects hashes, ownership/modes, symlink targets,
+package versions and OS identity without modifying guest configuration. It refuses
+to run unless the hostname matches this dedicated lab guest. Invoke it inside the
+guest with `--source-commit <commit>` and retain the JSON in the private lab area.
+Capture another record after configuring GNOME/GDM and before any DesktopForge
+installation test. The pre-desktop provisioning record is not that installation
+baseline. Compare records and graphical behavior; hashes alone do not establish
+that an existing desktop remains usable.
