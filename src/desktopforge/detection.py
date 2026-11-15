@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 
+from .preflight import inspect_preflight
 from .session_analysis import SHELL_EXECUTABLES, inspect_processes, session_analysis
 from pathlib import Path
 from typing import Any, Mapping
@@ -88,6 +89,7 @@ def detect_system(
     root: Path = Path("/"),
     environ: Mapping[str, str] | None = None,
     which: Any = None,
+    config_home: Path | None = None,
 ) -> dict[str, Any]:
     """Return an inventory of available evidence; all operations are read-only.
 
@@ -114,8 +116,17 @@ def detect_system(
     wayland_sessions = _session_entries(root / "usr/share/wayland-sessions")
     process_evidence = inspect_processes(root / "proc") if root == Path("/") else []
     analysis = session_analysis(wayland_sessions, env, process_evidence)
+    if config_home is None and root == Path("/"):
+        xdg_config = env.get("XDG_CONFIG_HOME", "")
+        home = env.get("HOME", "")
+        if xdg_config and Path(xdg_config).is_absolute():
+            config_home = Path(xdg_config)
+        elif home and Path(home).is_absolute():
+            config_home = Path(home) / ".config"
+    preflight = inspect_preflight(root, config_home)
     return {
-        "schema_version": 2,
+        "schema_version": 3,
+        "preflight_evidence": preflight,
         "distribution": {
             "id": distro.get("ID"),
             "name": distro.get("PRETTY_NAME") or distro.get("NAME"),

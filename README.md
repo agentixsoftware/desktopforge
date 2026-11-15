@@ -63,3 +63,8 @@ with an existing GDM or SDDM. It proposes packages and a distinct session path,
 shows source references, and stays **blocked** on isolated config, service hooks,
 environment cleanup, package review and VM validation. No installation support is
 claimed. See the [research and validation gates](docs/FEDORA45_NIRI_NOCTALIA_RESEARCH.md).
+
+Read-only [preflight inspection](docs/SESSION_PREFLIGHT.md) now flags existing
+service, display-manager and environment hooks for review, accounts for occupied
+DesktopForge paths, and previews isolated Niri/Noctalia config locations. The
+launcher and config remain incomplete drafts; no files or services are changed.

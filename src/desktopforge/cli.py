@@ -43,6 +43,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Read-only preview: {args.compositor} + {args.shell}")
             print(f"Compatibility: {result['compatibility']}; plan: blocked")
             print(f"Session ID preview: {result['session_id_preview']}")
+            for finding in result.get("preflight", {}).get("findings", []):
+                print(f"Review: {finding['path']}: {finding['reason']}")
+            layout = result.get("session_configuration_preview")
+            if layout:
+                print(f"Isolated user config draft: {layout['user_config']['relative_path']}")
+                for file in layout["system_files"]:
+                    print(f"System file draft: {file['path']}")
+                print("Launcher and config are incomplete design previews.")
             for blocker in result["blockers"]:
                 print(f"Blocked: {blocker}")
             if result["operations"]:

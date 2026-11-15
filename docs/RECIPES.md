@@ -101,8 +101,10 @@ There is no cross-recipe dependency syntax yet.
 
 Only one session proposal is allowed per recipe. The planner derives its path
 under `/usr/share/wayland-sessions/` from the generated unique session ID and
-reports `overwrite: false`. It does not read a template, render a launcher, check
-symlinks, reserve a name or write a file. Template availability, integration and
+reports `overwrite: false`. It does not read a template, produce a runnable launcher, reserve a name or
+write a file. Read-only preflight evidence now checks fixed path components and
+existing DesktopForge namespace entries for collision hints; that is not
+executor path validation. Template availability, integration and
 filesystem conflicts remain explicit blockers. Package provenance, versions and
 safe reuse also remain unvalidated. These proposals are not authorization for a
 future executor.
@@ -130,3 +132,8 @@ blockers; they cannot remove them or grant support. Source URLs are exposed as
 `recipe_sources` in plan JSON and as references in text output. They are never
 fetched during planning and do not establish signed validation provenance.
 Unmatched or ambiguous recipes contribute no operation proposals or sources.
+
+The `niri-noctalia-v5` template ID now has an incomplete isolated layout preview.
+Its launcher content is unavailable and its config fragment is not a complete
+Niri configuration. See [session drafts and preflight](SESSION_PREFLIGHT.md) for
+path selection, static evidence, schema changes and explicit limitations.

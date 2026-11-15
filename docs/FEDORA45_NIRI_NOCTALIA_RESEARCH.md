@@ -80,7 +80,8 @@ an option named dry-run. No Ryoku installer was downloaded or executed.
    against reviewed enabled repositories without adding repositories silently.
 2. Define isolated configuration and a launcher with explicit environment
    ownership. The recipe's `niri-noctalia-v5` template ID is a reserved design
-   reference; no launcher template or config generator is bundled yet.
+   reference; an incomplete isolated-layout preview now exists, but no executable
+   launcher or complete config generator is bundled yet.
 3. Inspect effective user/global compositor service hooks and display-manager
    wrappers. Model conflicts without changing the host or disabling other shells.
 4. Specify failure handling for missing user config, unavailable dependencies,
@@ -99,3 +100,12 @@ an option named dry-run. No Ryoku installer was downloaded or executed.
 Current offline tests cover recipe validation, constraint mismatches, canonical
 proposal order, collision-free ID previews, surfaced blockers/references and
 preservation of input inventory. No VM login or installation tests have run.
+
+## Follow-up: static preflight and isolated layout
+
+The planner now models isolated configuration and launcher locations without
+emitting runnable launcher code. Fixed-path read-only inventory identifies Niri
+service hooks, SDDM configuration, environment hooks and occupied DesktopForge
+namespaces. This advances gates 2 and 3 as design/observation work, without
+establishing safe startup or effective config interpretation. See
+[session preflight](SESSION_PREFLIGHT.md). All VM gates remain pending.

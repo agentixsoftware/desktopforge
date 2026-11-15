@@ -1,6 +1,8 @@
 """Conservative catalog and deterministic previews; no executable operations."""
 from __future__ import annotations
 
+from .preflight import preflight_preview
+from .session_layout import session_layout_preview
 from .operations import PackageProposal, SessionProposal, operation_preview, order_operations
 from .errors import RecipeError
 from .recipes import (COMPOSITORS, DISTRIBUTIONS, SHELLS, Recipe,
@@ -28,18 +30,23 @@ def build_plan(inventory: dict, compositor: str, shell: str,
     resolution = resolve_compatibility(inventory, compositor, shell, recipes)
     status = resolution["status"]
     existing = {entry["id"] for group in inventory["sessions"].values() for entry in group}
+    evidence = inventory.get("preflight_evidence")
+    occupied = existing | set((evidence or {}).get("occupied_session_ids", []))
+    preflight = preflight_preview(evidence)
     base = f"desktopforge-{compositor}-{shell}"
     session_id = base
     suffix = 2
-    while session_id in existing:
+    while session_id in occupied:
         session_id = f"{base}-{suffix}"
         suffix += 1
     blockers = ["No validated installation recipe is available."]
     blockers.extend(resolution["reasons"])
+    blockers.extend(preflight["blockers"])
     matched = [recipe for recipe in recipes if recipe.id in resolution["recipe_ids"]]
     operations = []
     selected_recipe = None
     recipe_sources = []
+    session_configuration = None
     if len(matched) > 1:
         blockers.append("Multiple recipes match; select one explicitly before proposing operations.")
     elif matched:
@@ -48,6 +55,14 @@ def build_plan(inventory: dict, compositor: str, shell: str,
         recipe_sources = list(recipe.sources)
         blockers.extend(recipe.review_blockers)
         operations = [operation_preview(op, session_id) for op in order_operations(recipe.operations)]
+        for operation in recipe.operations:
+            if isinstance(operation, SessionProposal):
+                session_configuration = session_layout_preview(operation.template, session_id, compositor, shell)
+                if session_configuration:
+                    blockers.extend(session_configuration["blockers"])
+        if (evidence or {}).get("ostree_boot_marker", "absent") not in ("absent", "unknown"):
+            operations = []
+            session_configuration = None
         if any(isinstance(op, PackageProposal) for op in recipe.operations):
             blockers.append("Package versions, provenance and installed-package reuse have not been validated.")
         if any(isinstance(op, SessionProposal) for op in recipe.operations):
@@ -71,6 +86,8 @@ def build_plan(inventory: dict, compositor: str, shell: str,
                      "existing_sessions": sorted(existing), "user_configuration": True},
         "selected_recipe": selected_recipe,
         "recipe_sources": recipe_sources,
+        "preflight": preflight,
+        "session_configuration_preview": session_configuration,
         "executable": False,
         "operations": operations,
         "limitations": ["Executable discovery does not validate compatibility or safe reuse.",
