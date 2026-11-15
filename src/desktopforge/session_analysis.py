@@ -127,6 +127,29 @@ def session_analysis(sessions: list[dict[str, str]],
         and ".service" in (proc.get("cgroup") or "")
         for name in proc["shell_candidates"]
     })
+    own_compositor_services = sorted({
+        name for proc in processes
+        if proc.get("uid") == own_uid
+        and "/user@" in (proc.get("cgroup") or "")
+        and ".service" in (proc.get("cgroup") or "")
+        for name in proc["compositor_candidates"]
+        if proc.get("executable", "").lower() == name.lower()
+    })
+    current_compositor = environ.get("XDG_CURRENT_DESKTOP", "").lower()
+    correlated = [
+        name for name in user_services
+        if current_compositor in own_compositor_services
+        and any(current_compositor in entry["compositor_candidates"]
+                and name in entry["shell_candidates"] for entry in described)
+    ]
+    correlation = {
+        "shell_candidates": correlated,
+        "confidence": "corroborated_hints" if len(correlated) == 1 else "insufficient",
+        "reason": ("Current desktop, own-user compositor service, own-user shell service "
+                   "and registered session name agree; service-to-login ownership unproven")
+                  if len(correlated) == 1 else
+                  "Insufficient independent signals to correlate a shell",
+    }
     if len(explicit_shells) == 1:
         active = {"name": explicit_shells[0], "confidence": "environment_hint",
                   "reason": "Session environment names the shell; not runtime verification"}
@@ -141,6 +164,8 @@ def session_analysis(sessions: list[dict[str, str]],
         "matching_session_hints": [entry["id"] for entry in matched],
         "running_shell_process_candidates": running_shells,
         "current_user_service_shell_candidates": user_services,
+        "current_user_compositor_service_candidates": own_compositor_services,
+        "shell_correlation": correlation,
         "shell_candidates": candidates,
         "active_shell": active,
         "limitations": [

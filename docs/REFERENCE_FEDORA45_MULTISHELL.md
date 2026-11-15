@@ -64,3 +64,14 @@ This validates static inventory only; it does not independently reproduce the
 previous live Ryoku service findings or establish installation compatibility.
 Fetching current main failed because github.com could not be resolved. The local
 baseline was commit 2675f1d; upstream freshness could not be established.
+
+## Milestone 1 continuation (pending laptop validation)
+
+A conservative shell correlation now checks four signals: the current desktop name, the current user's compositor systemd service, the current user's shell systemd service, and a registered session with matching compositor/shell labels. Matching signals produce `shell_correlation.confidence=corroborated_hints`, **not** a definitive `active_shell` assignment.
+
+The read-only `list` and `plan` commands now support research targets. No installation recipe is validated, and every preview is explicitly blocked from execution. Fedora 45 + Niri + Ryoku is included as a reference combination, not an installation support claim.
+
+After pulling, run `PYTHONPATH=src python3 -m pytest -q`, `PYTHONPATH=src python3 -m desktopforge detect --json`, and `PYTHONPATH=src python3 -m desktopforge plan --compositor niri --shell ryoku --json`.
+
+The terminal fetch subsequently succeeded and exposed six upstream commits. Those
+commits were merged locally, retaining shell correlation and both planner APIs.
