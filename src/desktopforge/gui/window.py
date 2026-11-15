@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QFram
     QMessageBox, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from ..detection import detect_system
-from ..labclient import LabHelperClient, lab_action
+from ..labclient import LabHelperClient, lab_action, repair_action
 from ..planning import build_plan
 from ..recipes import COMPOSITORS, SHELLS
 
@@ -135,6 +135,7 @@ class DesktopForgeWindow(QMainWindow):
         self.lab_client_factory = lab_client_factory
         self.lab_mode = False
         self.lab_request: tuple[str, str] | None = None
+        self.repair_request: str | None = None
         self._lab_client = None
         self._lab_worker: LabWorker | None = None
         self.inventory: dict | None = None
@@ -289,6 +290,11 @@ class DesktopForgeWindow(QMainWindow):
         self.install_button.setEnabled(False)
         self.install_button.setToolTip('This GUI only detects and previews. It has no installation or desktop-launch action.')
         self.install_button.clicked.connect(self.start_lab_action)
+        self.repair_button = QPushButton('Repair in VM lab…')
+        self.repair_button.setObjectName('installButton')
+        self.repair_button.hide()
+        self.repair_button.clicked.connect(self.start_lab_repair)
+        footer.addWidget(self.repair_button)
         footer.addWidget(self.install_button)
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -534,6 +540,9 @@ class DesktopForgeWindow(QMainWindow):
     def _update_lab_button(self) -> None:
         busy = self._lab_worker is not None and self._lab_worker.isRunning()
         self.lab_request = lab_action(self.plan, self.lab_mode) if self.plan is not None else None
+        self.repair_request = repair_action(self.plan, self.lab_mode)
+        self.repair_button.setVisible(self.repair_request is not None)
+        self.repair_button.setEnabled(self.repair_request is not None and not busy)
         if self.lab_request is None:
             self.install_button.setText('Installation unavailable')
             self.install_button.setEnabled(False)
@@ -555,14 +564,22 @@ class DesktopForgeWindow(QMainWindow):
         self._lab_worker.progressed.connect(self.status_label.setText)
         self._lab_worker.done.connect(on_done)
         self.install_button.setEnabled(False)
+        self.repair_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
         self.progress.show()
         self._lab_worker.start()
 
+    def start_lab_repair(self) -> None:
+        if self.repair_request is not None:
+            self._start_lab_request('repair', self.repair_request)
+
     def start_lab_action(self) -> None:
-        if self.lab_request is None or (self._lab_worker is not None and self._lab_worker.isRunning()):
+        if self.lab_request is not None:
+            self._start_lab_request(*self.lab_request)
+
+    def _start_lab_request(self, kind: str, recipe: str) -> None:
+        if self._lab_worker is not None and self._lab_worker.isRunning():
             return
-        kind, recipe = self.lab_request
         self.status_label.setText('Asking the lab helper for a preview…')
 
         def task(_progress):
@@ -609,8 +626,9 @@ class DesktopForgeWindow(QMainWindow):
     def confirm_lab(self, kind: str, summary: list[str]) -> bool:
         box = QMessageBox(self)
         box.setWindowTitle('Review before continuing')
-        box.setText(('Install in the VM lab?' if kind == 'install' else 'Remove from the VM lab?')
-                    + ' You will be asked to authenticate next.')
+        question = {'install': 'Install in the VM lab?', 'remove': 'Remove from the VM lab?',
+                    'repair': 'Repair in the VM lab?'}[kind]
+        box.setText(question + ' You will be asked to authenticate next.')
         box.setDetailedText('\n'.join(summary))
         box.setInformativeText('\n'.join(f'• {line}' for line in summary[:8]))
         box.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)

@@ -80,13 +80,16 @@ def query_recorded_packages(names, runner=None) -> dict | None:
 
 def package_status(package_inventory: dict | None, name: str, evr: str | None, arch: str | None,
                    live: dict | None = None) -> str:
-    """Prefer a direct query of the recorded names; fall back to the inventory's tracked RPMs."""
+    """present | updated (installed at another version) | missing | unknown.
+
+    Prefers a direct query of the recorded names; falls back to the inventory's tracked RPMs.
+    """
     if live is not None and name in live:
         if not live[name]:
             return 'missing'
         if evr is None:
             return 'present'
-        return 'present' if (evr, arch) in live[name] else 'changed'
+        return 'present' if (evr, arch) in live[name] else 'updated'
     for package in (package_inventory or {}).get('packages', []):
         if package.get('name') != name:
             continue
@@ -98,7 +101,7 @@ def package_status(package_inventory: dict | None, name: str, evr: str | None, a
             return 'present'
         found = {(f"{r['epoch']}:{r['version']}-{r['release']}", r['architecture'])
                  for r in package.get('records', [])}
-        return 'present' if (evr, arch) in found else 'changed'
+        return 'present' if (evr, arch) in found else 'updated'
     return 'unknown'
 
 
@@ -115,7 +118,8 @@ def summarize(record: dict, root: Path, package_inventory: dict | None, live: di
     elif any(f['status'] in ('missing', 'unsafe', 'unreadable') for f in files):
         overall = 'incomplete'
     elif any(f['status'] == 'modified' for f in files) or any(
-            p['status'] in ('missing', 'changed') for p in installed + reused):
+            p['status'] == 'missing' for p in installed + reused):
+        # A package at a newer version (normal system updates) is not damage; only absence is.
         overall = 'modified'
     elif any(p['status'] == 'unknown' for p in installed + reused):
         overall = 'unverified'  # files match, but package state could not be established
@@ -142,7 +146,7 @@ def inspect_installations(root: Path = Path('/'), package_inventory: dict | None
         return {**result, 'status': 'unavailable',
                 'issues': ['Install record directory is not a root-owned, non-writable directory; ignored.']}
     names = sorted(n for n in os.listdir(directory) if n.endswith('.json'))
-    removals, parsed = {}, []
+    removals, repairs, parsed = {}, {}, []
     if len(names) > MAX_RECORDS:
         result['issues'].append(f'Only the first {MAX_RECORDS} install records were read.')
     for name in names[:MAX_RECORDS]:
@@ -156,6 +160,12 @@ def inspect_installations(root: Path = Path('/'), package_inventory: dict | None
             fd = _open_nofollow(path)
             with os.fdopen(fd, 'rb') as stream:
                 data = stream.read(MAX_RECORD_BYTES + 1)
+            if name.endswith('.repair.json'):
+                repaired = schema.parse_repair(data)
+                if name != repaired['repair_id'] + '.repair.json':
+                    raise schema.RecordError('file name does not match repair_id')
+                repairs.setdefault(repaired['install_id'], []).append(repaired)
+                continue
             if name.endswith('.removal.json'):
                 removal = schema.parse_removal(data)
                 if name != removal['removal_id'] + '.removal.json':
@@ -176,6 +186,10 @@ def inspect_installations(root: Path = Path('/'), package_inventory: dict | None
         live = query_recorded_packages(names, runner)
     result['installations'] = [summarize(r, root, package_inventory, live) for r in parsed]
     for installation in result['installations']:
+        fixes = sorted(repairs.get(installation['install_id'], []), key=lambda r: r['recorded_at'])
+        if fixes:
+            installation['last_repair'] = {'repair_id': fixes[-1]['repair_id'], 'recorded_at': fixes[-1]['recorded_at'],
+                                           'state': fixes[-1]['state'], 'restored': fixes[-1]['restored']}
         history = sorted(removals.get(installation['install_id'], []), key=lambda r: r['recorded_at'])
         if history:
             last = history[-1]

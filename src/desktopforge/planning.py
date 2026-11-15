@@ -90,6 +90,11 @@ def build_plan(inventory: dict, compositor: str, shell: str,
             status_value, blockers, operations, session_configuration = "installed", [], [], None
             if render_problem:
                 warnings.append(render_problem)
+            updated = [p["name"] for p in installed["packages"]["installed"] + installed["packages"]["reused"]
+                       if p["status"] == "updated"]
+            if updated:
+                warnings.append("Updated since installation: " + ", ".join(updated) + ". DesktopForge validated "
+                                "this session with the recorded versions.")
             failed_launch = launch_warning(installed)
             if failed_launch:
                 warnings.append(failed_launch)
@@ -97,7 +102,7 @@ def build_plan(inventory: dict, compositor: str, shell: str,
             problems = [f"{f['path']} is {f['status']}" for f in installed["files"] if f["status"] != "intact"]
             problems += [f"package {p['name']} is {p['status']}" for p in
                          installed["packages"]["installed"] + installed["packages"]["reused"]
-                         if p["status"] in ("missing", "changed")]
+                         if p["status"] == "missing"]
             problems += [f"package {p['name']} could not be checked" for p in
                          installed["packages"]["installed"] + installed["packages"]["reused"]
                          if p["status"] == "unknown"]

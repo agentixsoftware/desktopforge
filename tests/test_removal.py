@@ -94,12 +94,18 @@ def test_reused_packages_are_never_removed():
     assert resolve.calls == [] and all(op['op'] == 'remove_file' for op in plan['operations'])
 
 
-@pytest.mark.parametrize('present, reason', [({}, 'not-installed'),
-                                             ({'niri': [{'evr': '0:26.04-3.fc45', 'arch': 'x86_64'}]}, 'changed')])
-def test_upgraded_or_removed_packages_are_kept(present, reason):
-    plan = removal.plan_removal(make_record(), INTACT, present, resolver())
+def test_missing_package_is_kept_as_not_installed():
+    plan = removal.plan_removal(make_record(), INTACT, {}, resolver())
     assert not any(op['op'] == 'remove_packages' for op in plan['operations'])
-    assert {'name': 'niri', 'evr': '0:26.04-2.fc45', 'reason': reason} in plan['kept']['packages']
+    assert {'name': 'niri', 'evr': '0:26.04-2.fc45', 'reason': 'not-installed'} in plan['kept']['packages']
+
+
+def test_package_updated_since_installation_is_still_removed_at_its_current_version():
+    updated = {'niri': [{'evr': '0:26.04-3.fc45', 'arch': 'x86_64'}]}
+    resolve = resolver(rows=[dict(NIRI_ROW, evr='0:26.04-3.fc45')])
+    plan = removal.plan_removal(make_record(), INTACT, updated, resolve)
+    (op,) = [o for o in plan['operations'] if o['op'] == 'remove_packages']
+    assert op['expected'][0]['evr'] == '0:26.04-3.fc45' and plan['blockers'] == []
 
 
 def test_dependents_or_version_mismatch_block():

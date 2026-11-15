@@ -29,6 +29,8 @@ SESSION_ACTION_ID = 'org.desktopforge.lab.register-session'
 INSTALL_ACTION_ID = 'org.desktopforge.lab.install-session'
 REMOVE_ACTION_ID = 'org.desktopforge.lab.remove-session'
 REMOVAL_PREFIX = 'remove-'
+REPAIR_PREFIX = 'repair-'
+REPAIR_ACTION_ID = 'org.desktopforge.lab.repair-session'
 INSTALL_ID = re.compile(r'[0-9a-f]{32}')
 CONFIG_DIR = '/etc/desktopforge'
 SESSION_CONFIG = CONFIG_DIR + '/sessions'
@@ -116,6 +118,8 @@ def action_for(recipe_id):
     """Each sensitive operation class has its own Polkit action; the strongest applies."""
     if recipe_id.startswith(REMOVAL_PREFIX):
         return REMOVE_ACTION_ID
+    if recipe_id.startswith(REPAIR_PREFIX):
+        return REPAIR_ACTION_ID
     ops = {op['op'] for op in RECIPES[recipe_id]['operations']}
     if 'install_packages' in ops:
         return INSTALL_ACTION_ID
@@ -206,6 +210,37 @@ def build_removal_plan(recipe_id, records_by_id, removed_ids, file_states, insta
     result = plan_removal(record, file_states, installed_now, resolve_removal)
     plan.update(operations=result['operations'], kept=result['kept'])
     return plan, result['blockers']
+
+
+def build_repair_plan(recipe_id, records_by_id, removed_ids, file_states, installed_now, resolve,
+                      recipe_plan_for, expected_files, plan_repair):
+    """Repair plan for one recorded installation; content must match the record exactly."""
+    install_id = recipe_id[len(REPAIR_PREFIX):]
+    if not INSTALL_ID.fullmatch(install_id) or install_id not in records_by_id:
+        raise Rejected('unknown installation')
+    record = records_by_id[install_id]
+    plan = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': 1, 'targets': TARGETS,
+            'install_id': install_id, 'session_name': record['session']['name'], 'operations': [],
+            'restore': {'files': [], 'packages': []}}
+    if install_id in removed_ids:
+        return plan, [f'Installation {install_id} was removed; install it again instead of repairing.']
+    recipe = RECIPES.get(record['recipe']['id'])
+    if recipe is None or recipe['revision'] != record['recipe']['revision']:
+        return plan, [f'The recipe changed since installation (revision {record["recipe"]["revision"]}); '
+                      'repair cannot restore it exactly.']
+    recipe_plan = recipe_plan_for(record['recipe']['id'])
+    result = plan_repair(record, file_states, expected_files(recipe_plan), installed_now, resolve, recipe_plan)
+    plan.update(operations=result['operations'], restore=result['restore'], signer=recipe.get('signer'))
+    return plan, result['blockers']
+
+
+def repair_record(records, plan, result, journal_id, caller_uid, recorded_at):
+    files = [{'path': f'{TARGETS[c["target"]]}/{c["name"]}'} for c in result['created'] if c.get('kind') == 'file']
+    packages = [{'name': p['name'], 'evr': p['evr']} for c in result['created'] if c.get('kind') == 'packages'
+                for p in c['packages']]
+    return records.build_repair(repair_id=journal_id, install_id=plan['install_id'], recorded_at=recorded_at,
+                                state=result['state'], producer='desktopforge-lab-helper', action=REPAIR_ACTION_ID,
+                                uid=caller_uid, files=files, packages=packages)
 
 
 def removal_record(records, plan, result, journal_id, caller_uid, recorded_at):
@@ -303,10 +338,28 @@ def summarize_removal(plan):
     return lines
 
 
+def summarize_repair(plan):
+    lines = []
+    for op in plan['operations']:
+        if op['op'] == 'install_packages':
+            lines.append('Reinstall missing packages at their recorded versions: ' +
+                         ', '.join(f'{r["name"]} {r["evr"]}' for r in op['expected']))
+        elif op['op'] == 'create_file':
+            lines.append(f'Restore {plan["targets"][op["target"]]}/{op["name"]} exactly as installed')
+        elif op['op'] == 'validate_config':
+            lines.append(f'Check {plan["targets"][op["target"]]}/{op["name"]} with "{op["kind"]} validate"')
+        elif op['op'] == 'register_session':
+            lines.append(f'Restore login session "{op["entry"]["Name"]}" exactly as installed')
+    lines.append('Edited files are never overwritten, and installed versions are not changed.')
+    return lines
+
+
 def summarize(plan):
     """Plain-language list for the client to show before approval."""
     if plan['recipe'].startswith(REMOVAL_PREFIX):
         return summarize_removal(plan)
+    if plan['recipe'].startswith(REPAIR_PREFIX):
+        return summarize_repair(plan)
     lines = []
     for op in plan['operations']:
         if op['op'] == 'install_packages':
@@ -392,7 +445,7 @@ def validate_niri(_dir_fd, name):  # pragma: no cover - VM only
 
 def run_service():  # pragma: no cover - exercised in the disposable VM
     sys.path.insert(0, CORE_PATH)
-    from desktopforge_helper import evidence, executor, fsops, pkgtx, records, removal, sessions
+    from desktopforge_helper import evidence, executor, fsops, pkgtx, records, removal, repair, sessions
     from desktopforge_helper.grants import Caller, GrantRejected, GrantStore
     from desktopforge_helper.journal import Journal, JournalError
     from gi.repository import Gio, GLib
@@ -478,6 +531,9 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                 continue
             try:
                 data = fsops.read_small(installs_fd, entry['name'])
+                if entry['name'].endswith('.repair.json'):
+                    records.parse_repair(data)
+                    continue
                 if entry['name'].endswith('.removal.json'):
                     item = records.parse_removal(data)
                     if item['state'] == 'completed':
@@ -510,6 +566,31 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
     def plan_for(recipe_id, sessions_fd):
         current, names = inspect(sessions_fd)
         installs, removed, kept = load_records()
+        if recipe_id.startswith(REPAIR_PREFIX):
+            install_id = recipe_id[len(REPAIR_PREFIX):]
+            record = installs.get(install_id)
+            file_states, installed_now = {}, {}
+            if record is not None:
+                file_states = {f['path']: file_state(sessions_fd, f['path'], f['sha256']) for f in record['files']}
+                names_ = sorted({p['name'] for p in record['packages']['installed']} | set(record['packages']['reused']))
+                if names_:
+                    found, _missing = pkgtx.query_installed(names_, runner)
+                    installed_now = {n: [{'evr': r['evr'], 'arch': r['arch']} for r in rows]
+                                     for n, rows in found.items()}
+
+            def recipe_plan_for(recorded_recipe):
+                recipe_plan, _ = build_plan(recorded_recipe, current, names, sessions.render, sessions.session_filename,
+                                            resolve=lambda p, r: ([], []), templates=templates,
+                                            rendering=lambda: {'status': 'hardware', 'nodes': []})
+                return recipe_plan
+            plan, blockers = build_repair_plan(
+                recipe_id, installs, removed, file_states, installed_now,
+                lambda n, r: pkgtx.resolve(n, r, runner), recipe_plan_for,
+                lambda recipe_plan: repair.expected_files(recipe_plan, TARGETS, sessions.render,
+                                                          sessions.session_filename, ALLOWED_COMMANDS),
+                repair.plan_repair)
+            plan['file_states'] = file_states  # bound into the plan hash
+            return current, plan, blockers
         if recipe_id.startswith(REMOVAL_PREFIX):
             install_id = recipe_id[len(REMOVAL_PREFIX):]
             record = installs.get(install_id)
@@ -678,6 +759,10 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                         name = f'{journal.install_id}.removal.json'
                         data = records.serialize_removal(removal_record(records, plan, result, journal.install_id,
                                                                         caller.uid, stamp))
+                    elif plan['recipe'].startswith(REPAIR_PREFIX):
+                        name = f'{journal.install_id}.repair.json'
+                        data = records.serialize_repair(repair_record(records, plan, result, journal.install_id,
+                                                                      caller.uid, stamp))
                     else:
                         record = install_record(records, dict(plan, plan_hash=grant.plan_hash), result,
                                                 journal.install_id, caller.uid, action, stamp)

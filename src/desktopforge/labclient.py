@@ -16,6 +16,16 @@ APPLY_TIMEOUT_MS = 20 * 60 * 1000
 # GUI combinations the lab helper can install. Nothing else is offered.
 LAB_RECIPES = {('niri', 'noctalia'): 'fedora45-niri-noctalia-lab'}
 REMOVAL_PREFIX = 'remove-'
+REPAIR_PREFIX = 'repair-'
+REPAIRABLE = ('modified', 'incomplete')
+
+
+def repair_action(plan: dict | None, available: bool) -> str | None:
+    """repair-<install_id> for a damaged recorded installation in lab mode, else None."""
+    existing = (plan or {}).get('existing_installation')
+    if available and existing and existing.get('status') in REPAIRABLE:
+        return REPAIR_PREFIX + existing['install_id']
+    return None
 
 
 def lab_action(plan: dict | None, available: bool) -> tuple[str, str] | None:

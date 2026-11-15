@@ -32,11 +32,14 @@ def plan_removal(record, file_states, installed_now, resolve_removal):
             kept_files.append({'path': item['path'], 'reason': status})
     candidates = []
     for package in record['packages']['installed']:
-        present = installed_now.get(package['name'], [])
-        if not present:
+        same_arch = [p for p in installed_now.get(package['name'], []) if p['arch'] == package['arch']]
+        if not same_arch:
             kept_packages.append({'name': package['name'], 'evr': package['evr'], 'reason': 'not-installed'})
-        elif {'evr': package['evr'], 'arch': package['arch']} in present:
+        elif any(p['evr'] == package['evr'] for p in same_arch):
             candidates.append(package)
+        elif len(same_arch) == 1:
+            # This installation added the package; normal updates since then do not change that.
+            candidates.append(dict(package, evr=same_arch[0]['evr']))
         else:
             kept_packages.append({'name': package['name'], 'evr': package['evr'], 'reason': 'changed'})
     for name in record['packages']['reused']:

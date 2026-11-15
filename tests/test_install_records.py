@@ -123,15 +123,26 @@ def test_removed_entry_is_incomplete_and_symlink_is_unsafe(tmp_path):
         'desktopforge-niri-noctalia.desktop'] == 'unsafe'
 
 
-def test_removed_or_upgraded_package_marks_modified(tmp_path):
+def test_removed_package_marks_modified_but_an_update_does_not(tmp_path):
     root = install_tree(tmp_path)
     upgraded = copy.deepcopy(PACKAGES)
     upgraded['packages'][0]['records'][0]['release'] = '3.fc45'
-    assert install_records.inspect_installations(root, upgraded)['installations'][0]['status'] == 'modified'
+    inst = install_records.inspect_installations(root, upgraded)['installations'][0]
+    assert inst['status'] == 'intact' and inst['packages']['installed'][0]['status'] == 'updated'
     removed = copy.deepcopy(PACKAGES)
     removed['packages'][1] = {'name': 'noctalia', 'status': 'not_installed', 'records': []}
     inst = install_records.inspect_installations(root, removed)['installations'][0]
     assert inst['status'] == 'modified' and inst['packages']['reused'][0]['status'] == 'missing'
+
+
+def test_updated_package_is_installed_with_a_warning(inventory):
+    inv = with_installation(inventory, 'intact')
+    inv['rendering'] = {'status': 'hardware', 'nodes': []}
+    inv['desktopforge_installations']['installations'][0]['packages']['installed'][0]['status'] = 'updated'
+    plan = build_plan(inv, 'niri', 'noctalia')
+    assert plan['status'] == 'installed'
+    assert plan['warnings'] == ['Updated since installation: niri. DesktopForge validated this session with the '
+                                'recorded versions.']
 
 
 def test_bad_records_are_ignored_with_an_issue(tmp_path):

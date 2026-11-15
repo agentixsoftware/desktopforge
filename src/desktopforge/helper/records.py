@@ -194,3 +194,55 @@ def parse_removal(data):
         return validate_removal(json.loads(data))
     except (ValueError, TypeError, AttributeError, KeyError) as exc:
         raise RecordError(f'unreadable removal record: {exc}') from None
+
+
+# ---- repair records ----------------------------------------------------------------------
+
+def validate_repair(repair):
+    _keys(repair, ('schema', 'kind', 'repair_id', 'install_id', 'recorded_at', 'state', 'producer',
+                   'authorization', 'restored', 'journal'))
+    _require(repair['schema'] == SCHEMA and repair['kind'] == 'repair', 'unsupported repair record')
+    for key in ('repair_id', 'install_id'):
+        _require(isinstance(repair[key], str) and INSTALL_ID.fullmatch(repair[key]), key)
+    _require(isinstance(repair['recorded_at'], str) and TIMESTAMP.fullmatch(repair['recorded_at']), 'recorded_at')
+    _require(repair['state'] in REMOVAL_STATES, 'state')
+    _require(isinstance(repair['producer'], str) and IDENT.fullmatch(repair['producer']), 'producer')
+    _require(repair['journal'] == repair['repair_id'] + '.jsonl', 'journal')
+    auth = repair['authorization']
+    _keys(auth, ('action', 'uid'))
+    _require(isinstance(auth['action'], str) and re.fullmatch(r'[a-z0-9.-]{1,100}', auth['action']), 'action')
+    _require(type(auth['uid']) is int and 0 <= auth['uid'] < 2**32 - 1, 'uid')
+    _keys(repair['restored'], ('files', 'packages'))
+    files, packages = repair['restored']['files'], repair['restored']['packages']
+    _require(isinstance(files, list) and len(files) <= MAX_FILES, 'files')
+    _require(isinstance(packages, list) and len(packages) <= MAX_PACKAGES, 'packages')
+    for item in files:
+        _keys(item, ('path',))
+        _require(isinstance(item['path'], str) and any(p.fullmatch(item['path']) for p in FILE_PATTERNS.values())
+                 and '..' not in item['path'], 'file path outside DesktopForge namespaces')
+    for item in packages:
+        _keys(item, ('name', 'evr'))
+        _require(isinstance(item['name'], str) and NAME.fullmatch(item['name']), 'package name')
+        _require(isinstance(item['evr'], str) and EVR.fullmatch(item['evr']), 'evr')
+    return repair
+
+
+def build_repair(*, repair_id, install_id, recorded_at, state, producer, action, uid, files, packages):
+    return validate_repair({
+        'schema': SCHEMA, 'kind': 'repair', 'repair_id': repair_id, 'install_id': install_id,
+        'recorded_at': recorded_at, 'state': state, 'producer': producer,
+        'authorization': {'action': action, 'uid': uid},
+        'restored': {'files': sorted(files, key=lambda f: f['path']),
+                     'packages': sorted(packages, key=lambda p: p['name'])},
+        'journal': repair_id + '.jsonl'})
+
+
+def serialize_repair(repair):
+    return (json.dumps(validate_repair(repair), indent=2, sort_keys=True) + '\n').encode()
+
+
+def parse_repair(data):
+    try:
+        return validate_repair(json.loads(data))
+    except (ValueError, TypeError, AttributeError, KeyError) as exc:
+        raise RecordError(f'unreadable repair record: {exc}') from None
