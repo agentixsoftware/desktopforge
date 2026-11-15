@@ -20,8 +20,9 @@ with Niri's parser. It starts no desktop and writes no configuration. Add `--jso
 to `--check` for structured results.
 
 The second command opens a nested Niri window and starts Noctalia inside it.
-This is a desktop-session trial, not a DesktopForge installer window; that GUI
-has not been implemented. The trial opens Noctalia's application menu automatically after initialization; no application is launched until you select one. You should
+This is a desktop-session trial. The read-only DesktopForge application is
+available separately through `scripts/desktopforge-gui`; it is not opened by this
+command. The trial opens Noctalia's application menu automatically after initialization; no application is launched until you select one. You should
 see Noctalia's bar/panels. Focus the nested window and use **Alt+D** or
 **Alt+Space** for its application menu, or **Alt+Return** for an available
 terminal. A completely empty window without a bar requires startup diagnostics.

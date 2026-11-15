@@ -293,7 +293,7 @@ def run_session(env: Mapping[str, str], *, nested: bool, runner: Callable = run_
                         ready = True
                         modifier = 'Alt' if nested else 'Super'
                         print(f'Noctalia initialized. {modifier}+D: applications; {modifier}+Return: terminal (if available); {modifier}+Shift+E: quit.')
-                        print('This opens a desktop trial. DesktopForge does not yet have an installer GUI.')
+                        print('This opens a desktop trial. Open the separate DesktopForge GUI for system inventory and plan previews.')
                 if not ready and clock() >= deadline:
                     raise LauncherError('Timed out waiting for Noctalia initialization.')
                 sleep(.2)

@@ -4,7 +4,23 @@
 
 DesktopForge is an open-source, beginner-friendly tool for adding compatible Wayland compositor and desktop shell combinations to an existing Linux installation, without replacing the working desktop or display manager.
 
-> **Status: planning / v0.1 draft.** No installation functionality has been released. The target compatibility matrix is not yet validated.
+> **Status: read-only prototype / v0.1 draft.** No installation functionality has been released. The target compatibility matrix is not yet validated.
+
+## Open the DesktopForge application
+
+```bash
+./scripts/desktopforge-gui
+```
+
+This opens the native PySide6 application: system inventory, compositor/shell
+selection, and a read-only installation-plan preview. The script uses the
+prepared `.venv-gui` environment in this checkout and works from any folder when
+called by its full path. It starts no compositor and changes no desktop settings.
+Installation is visibly unavailable until recipes and the helper are validated.
+See the [GUI guide](docs/GUI.md) for controls and fresh-checkout setup.
+
+The separate `desktopforge-session` command is a desktop trial launcher; use
+`desktopforge-gui` to open DesktopForge itself.
 
 ## Initial scope
 
@@ -95,8 +111,9 @@ does not alter existing desktop config/services. VM-tested production support is
 still pending. See [trial instructions, standalone mode and diagnostics](docs/TRY_LAUNCHER.md).
 
 Inside the nested window, Alt+D or Alt+Space opens Noctalia's application menu;
-Alt+Return opens an available terminal. The trial does not open a DesktopForge
-installer GUI (that milestone is still pending). If there is no shell bar/panel,
+Alt+Return opens an available terminal. The trial does not open the DesktopForge application. Use
+`scripts/desktopforge-gui` for the inventory and plan window; installation execution
+is still unavailable. If there is no shell bar/panel,
 run `PYTHONPATH=src python3 -m desktopforge.session_launcher --diagnose` from
 another terminal in the same desktop account while the trial is open.
 

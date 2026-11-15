@@ -14,10 +14,12 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+gui = ["PySide6-Essentials>=6.8,<7"]
 
 [project.scripts]
 desktopforge = "desktopforge.cli:main"
 desktopforge-session = "desktopforge.session_launcher:main"
+desktopforge-gui = "desktopforge.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

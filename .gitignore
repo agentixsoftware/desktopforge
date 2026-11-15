@@ -30,3 +30,6 @@ htmlcov/
 
 # Local cross-account diagnostic handoff (may contain private log paths)
 .desktopforge-reports/
+
+# Optional project-local GUI dependencies
+.venv-gui/

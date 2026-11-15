@@ -46,3 +46,11 @@ Version 0.1 (draft) | 2026-11-14
 
 ## Indicative effort
 6–10 weeks for a narrow technical MVP is an early estimate, not a commitment; broad beginner-ready support may take substantially longer.
+
+## Current implementation notes
+
+Read-only `detect`, `list`, typed recipe validation and deterministic blocked
+planning are implemented. An early Milestone 3 GUI now exposes this core through
+system inventory, target choices and plan/requirements views. This is a preview
+with installation permanently unavailable; it does not imply completion of the
+Milestone 2 privileged helper or VM installation/lifecycle validation.

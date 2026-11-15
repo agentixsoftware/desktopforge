@@ -24,3 +24,20 @@ The detector reads os-release, session .desktop files, a display-manager systemd
 ## Security model
 
 No commands are executed. No configuration files are modified. The executable lookup uses `shutil.which`. The detector never evaluates the contents of os-release or session files.
+
+## Native GUI preview
+
+Use `scripts/desktopforge-gui` to open the application. The prepared checkout uses
+an ignored `.venv-gui` environment; no system Python or packages were modified.
+On a fresh development checkout, create an isolated environment and install the
+optional GUI/dev extras there:
+
+```bash
+python3 -m venv .venv-gui
+.venv-gui/bin/python -m pip install -e '.[gui,dev]'
+QT_QPA_PLATFORM=offscreen .venv-gui/bin/python -m pytest -q
+```
+
+The core CLI has no Qt dependency. GUI tests are skipped when PySide6 is absent;
+they run in full in the GUI environment using Qt's offscreen platform. See
+[GUI scope and validation](GUI.md). No privileged helper or installer is invoked.

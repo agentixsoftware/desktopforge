@@ -1,0 +1,17 @@
+#!/usr/bin/python3
+"""Open DesktopForge itself, using the prepared checkout GUI environment."""
+import importlib.util
+import os
+from pathlib import Path
+import sys
+
+root = Path(__file__).resolve().parents[1]
+if importlib.util.find_spec('PySide6') is None:
+    python = root / '.venv-gui/bin/python'
+    if python.is_file() and not os.environ.get('DESKTOPFORGE_GUI_REEXEC'):
+        os.environ['DESKTOPFORGE_GUI_REEXEC'] = '1'
+        os.execv(str(python), [str(python), str(Path(__file__).absolute()), *sys.argv[1:]])
+sys.path.insert(0, str(root / 'src'))
+from desktopforge.gui import main
+
+raise SystemExit(main())
