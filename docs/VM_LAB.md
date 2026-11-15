@@ -151,3 +151,14 @@ Each backup records its SHA-256 in a manifest; restore re-verifies the backup,
 stages a verified copy and atomically replaces the working disk. An existing
 backup is never overwritten and names are restricted to `[a-z0-9._-]`. Backups
 live in the ignored `.desktopforge-vm/backups-kvm/` directory.
+
+## 3D acceleration for compositors that refuse software rendering
+
+Niri will not start rendering on `virtio-vga` with llvmpipe. Start the guest with
+`--gl` to give it a virgl GPU (`virtio-vga-gl`) backed by host OpenGL. With
+`--show` this uses `gtk,gl=on`; headless it uses `egl-headless`. This is still
+not real-GPU validation, but it is a hardware-accelerated path.
+
+```bash
+./scripts/desktopforge-vm --profile kvm --accelerator kvm --gl --show start
+```

@@ -116,6 +116,48 @@ file moved away, GDM omitted the entry, preselected GNOME and logged in to
 value, so if the file returns, it becomes the default again. Removal and
 recovery tooling should reset or at least report that value.
 
+## Fedora 45 Niri + Noctalia lab install (2026-11-15)
+
+Recipe `fedora45-niri-noctalia-lab`, one `org.desktopforge.lab.install-session`
+authorization. Package operations use `src/desktopforge/helper/pkgtx.py`:
+- **Fixed command:** DNF5 with `--repo=fedora --repo=updates`, signature checking
+  forced on, no weak dependencies.
+- **Strict parsing:** the transaction table is parsed strictly (the fixture is
+  real guest output). Upgrades, removals, replacements, weak dependencies and
+  every DNF warning block the plan.
+- **Bound to the preview:** the previewed package set is part of the plan hash and
+  is re-resolved before installing.
+- **Verified after install:** each package's version and Fedora 45 signing key
+  `655a4b02f577861e` are checked.
+
+The commands run as transient units started through systemd, with output in
+root-only logs under `/var/lib/desktopforge-lab/package-logs`.
+
+| Step | Result |
+| --- | --- |
+| First preview | Blocked: a pending offline update (GNOME Software, `dnf5daemon-server`) would have been cancelled by the install |
+| Lab-admin action | `dnf5 offline clean`, logged separately; not done by DesktopForge |
+| Preview | 7 packages (niri, noctalia, 5 dependencies), config file, `niri validate`, session entry, disclosure notes |
+| First apply | **Bug:** DNF installed all 7 packages, but the verifying `rpm -q` was killed by the helper's seccomp filter (`fchown` is in `@privileged`). The empty output was read as "not installed", and the result and journal said "No changes were made" — **false** |
+| Recovery | `dnf5 history undo` as a logged lab-admin action; RPM set, `~/.config` and the preservation record identical to before |
+| Fix | rpm results must account for every name, with status equal to the missing count. Failures after the transaction starts are `TransactionRan`, reported as verified packages or "state unknown", never "no changes". rpm now also runs outside the sandbox |
+| Second apply | `completed`, 13-entry journal; the RPM diff is exactly the 7 reviewed packages; signer verified; config `etc_t`, session entry `usr_t` |
+| GDM | Lists "Niri + Noctalia (DesktopForge)" and Fedora's package-owned "Niri" (as disclosed) |
+| Login | Session active; `niri --session --config /etc/desktopforge/sessions/niri-noctalia.kdl` and `noctalia` running; `GDMSESSION=desktopforge-niri-noctalia`, `XDG_CURRENT_DESKTOP=niri` |
+| Picture | **None.** Niri: "software EGL renderers are skipped". The VM GPU was `virtio-vga` without 3D, so only llvmpipe exists. GNOME accepts software rendering; Niri does not. Screen stayed on GDM's last frame |
+| After ending the session | No Niri/Noctalia/xwayland-satellite processes, no session variables in the user manager, no runtime-dir leftovers, no failed units; no `~/.config/niri` (isolation held); `~/.config/noctalia` created (disclosed) |
+| Remembered default | GDM now defaulted to the session that could not display; choosing GNOME explicitly worked and reset it |
+| Original GNOME | Logs in (`GDMSESSION=gnome`) |
+
+Also seen: Niri logged `import environment shell exited with exit status: 1`.
+Its own import of session variables into systemd failed, so nothing leaked,
+but portals and user services may lack `WAYLAND_DISPLAY`. That needs
+investigating once the session renders.
+
+Next: `scripts/desktopforge-vm --gl` gives the guest a virgl 3D GPU
+(`virtio-vga-gl`, host OpenGL). Recipes need a real rendering preflight
+(hardware or virgl EGL, not llvmpipe) rather than only a disclosure note.
+
 ## Not yet covered
 
 The helper has not yet been tested for caller disconnect during an apply

@@ -87,3 +87,19 @@ def test_backup_directory_symlink_is_refused(vm, tmp_path):
 
 def test_guest_reboot_is_not_turned_into_qemu_exit():
     assert '-no-reboot' not in SCRIPT.read_text()
+
+
+@pytest.mark.parametrize('show, gl, device, display', [
+    (False, False, 'virtio-vga', 'none'),
+    (True, False, 'virtio-vga', 'gtk,gl=off'),
+    (True, True, 'virtio-vga-gl', 'gtk,gl=on'),
+    (False, True, 'virtio-vga-gl', 'egl-headless'),
+])
+def test_qemu_display_modes(vm, show, gl, device, display):
+    ns, _, run = vm
+    args = ns['qemu_args']('kvm', show, gl, 4321)
+    assert args[args.index('-display') + 1] == display
+    devices = [args[i + 1] for i, a in enumerate(args) if a == '-device']
+    assert device in devices and len([d for d in devices if d.startswith('virtio-vga')]) == 1
+    assert f'file={run}/guest.qcow2,format=qcow2,if=virtio' in args and '-no-reboot' not in args
+    assert 'tls-creds=console-tls' in ' '.join(args)  # kvm profile keeps the authenticated console
