@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
                 for file in layout["system_files"]:
                     print(f"System file draft: {file['path']}")
                 print("Launcher and config are incomplete design previews.")
+                print("Startup and cleanup: simulation only; runtime unavailable.")
             for blocker in result["blockers"]:
                 print(f"Blocked: {blocker}")
             if result["operations"]:

@@ -92,3 +92,12 @@ reserved namespace collisions and incomplete layout contracts. Tests verify
 stable output and unchanged input/files; the live reference scan identifies the
 installed hooks without touching them. Disposable VM login/lifecycle validation
 and GPU checks are still pending.
+
+## Launcher lifecycle follow-up
+
+The launch contract now includes a [pure lifecycle simulation](LAUNCHER_LIFECYCLE.md)
+covering environment snapshots, ownership/revision checks, shell readiness,
+interruption, startup failures and deferred cleanup. No real adapter, process
+supervision, environment import or crash recovery is implemented. Static
+preflight observations cannot automatically mark the model's review prerequisites
+as satisfied. Layouts remain incomplete and non-executable.

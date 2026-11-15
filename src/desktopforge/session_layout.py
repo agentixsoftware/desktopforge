@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from .errors import RecipeError
+from .lifecycle import lifecycle_contract
 
 
 def session_layout_preview(template: str, session_id: str, compositor: str, shell: str) -> dict | None:
@@ -26,9 +27,10 @@ def session_layout_preview(template: str, session_id: str, compositor: str, shel
                         'fragment_preview': 'spawn-at-startup "noctalia"\n',
                         'complete': False},
         'launch_contract': {
+            'lifecycle_model': lifecycle_contract(),
             'compositor_argv': ['niri-session'],
             'environment': {'NIRI_CONFIG': 'absolute path to the isolated user config'},
-            'user_manager_environment_policy': 'Snapshot owned values before startup; restore on normal exit and startup failure.',
+            'user_manager_environment_policy': 'Snapshot NIRI_CONFIG; restore only after owned compositor exit and unchanged ownership/revision.',
             'requirements': [
                 'Generate a complete, usable isolated config without copying or overwriting existing user configuration.',
                 'Reject an already running compositor session and unreviewed service hooks.',

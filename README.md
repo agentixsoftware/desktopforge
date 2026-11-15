@@ -68,3 +68,7 @@ Read-only [preflight inspection](docs/SESSION_PREFLIGHT.md) now flags existing
 service, display-manager and environment hooks for review, accounts for occupied
 DesktopForge paths, and previews isolated Niri/Noctalia config locations. The
 launcher and config remain incomplete drafts; no files or services are changed.
+
+A [launcher lifecycle simulation](docs/LAUNCHER_LIFECYCLE.md) now tests startup,
+shell readiness and ownership-aware environment cleanup using immutable fixture
+state. It has no runtime adapter and cannot launch or alter a desktop session.
