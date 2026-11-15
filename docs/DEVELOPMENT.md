@@ -23,7 +23,7 @@ The detector reads os-release, session .desktop files, a display-manager systemd
 
 ## Security model
 
-No commands are executed. No configuration files are modified. The executable lookup uses `shutil.which`. The detector never evaluates the contents of os-release or session files.
+On live Fedora, detection runs fixed, local-only `/usr/bin/rpm --query --noplugins` commands for a small package allowlist, with sanitized environment and a three-second timeout per query. It never invokes DNF, refreshes repositories or starts a transaction. Fixture roots never query the host package database. No configuration files are modified. The executable lookup uses `shutil.which`. The detector never evaluates the contents of os-release or session files.
 
 ## Native GUI preview
 

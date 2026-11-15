@@ -26,7 +26,7 @@ def inventory(root, config_home=None):
 
 def test_static_observation_never_means_installable(tmp_path):
     result = inventory(tmp_path, tmp_path / 'home/user/.config')
-    assert result['schema_version'] == 3
+    assert result['schema_version'] == 4
     assert result['preflight_evidence']['inspection_complete']
     assert result['preflight_evidence']['ostree_boot_marker'] == 'absent'
     preview = build_plan(result, 'niri', 'noctalia')

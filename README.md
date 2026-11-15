@@ -121,3 +121,5 @@ The executable `scripts/desktopforge-session` helper works from any folder
 without PYTHONPATH. `scripts/desktopforge-diagnostics` collects a read-only report
 in the checkout's ignored `.desktopforge-reports/` directory, allowing a
 same-account diagnostic handoff through the existing shared project folder.
+
+The GUI Packages tab now shows local Fedora RPM versions and unverified reuse candidates. Package-query failures remain unknown; repository trust, compatibility and installation remain unvalidated. See [GUI package evidence](docs/GUI.md#installed-package-evidence).

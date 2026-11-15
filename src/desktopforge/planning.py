@@ -1,6 +1,7 @@
 """Conservative catalog and deterministic previews; no executable operations."""
 from __future__ import annotations
 
+from .packages import package_assessment
 from .preflight import preflight_preview
 from .session_layout import session_layout_preview
 from .operations import PackageProposal, SessionProposal, operation_preview, order_operations
@@ -78,6 +79,7 @@ def build_plan(inventory: dict, compositor: str, shell: str,
         "compatibility_resolution": resolution,
         "blockers": blockers,
         "session_id_preview": session_id,
+        "package_assessment": package_assessment(inventory, compositor, shell),
         "component_evidence": {
             "compositor_executable_found": inventory["compositor_executables"][compositor]["found"],
             "shell_executable_found": inventory["shell_executables"][shell]["found"],

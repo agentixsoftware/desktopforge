@@ -60,3 +60,19 @@ def test_cli_recipe_validation_failure_is_actionable(monkeypatch, capsys):
     output = capsys.readouterr()
     assert output.out == ''
     assert 'Recipe validation failed' in output.err
+
+
+def test_installed_packages_do_not_satisfy_recipe_or_mutate_evidence(tmp_path):
+    data = inventory(tmp_path)
+    data['distribution'].update(id='fedora', version_id='45')
+    data['display_manager']['name'] = 'sddm'
+    data['package_inventory']['packages'] = [
+        {'name': name, 'status': 'installed', 'records': [], 'reason': 'Fixture RPM header'}
+        for name in ('niri', 'noctalia')]
+    before = json.dumps(data, sort_keys=True)
+    plan = build_plan(data, 'niri', 'noctalia')
+    assert plan['status'] == 'blocked' and plan['executable'] is False
+    assert all(p['reuse'] == 'candidate_unverified' for p in plan['package_assessment']['packages'])
+    assert any('provenance' in reason for reason in plan['blockers'])
+    assert len(plan['operations']) == 5
+    assert json.dumps(data, sort_keys=True) == before

@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 
+from .packages import inspect_packages
 from .preflight import inspect_preflight
 from .session_analysis import SHELL_EXECUTABLES, inspect_processes, session_analysis
 from pathlib import Path
@@ -125,7 +126,8 @@ def detect_system(
             config_home = Path(home) / ".config"
     preflight = inspect_preflight(root, config_home)
     return {
-        "schema_version": 3,
+        "schema_version": 4,
+        "package_inventory": inspect_packages(distro.get("ID"), root),
         "preflight_evidence": preflight,
         "distribution": {
             "id": distro.get("ID"),

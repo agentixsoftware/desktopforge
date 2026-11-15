@@ -275,3 +275,19 @@ def test_gui_without_display_context_fails_cleanly_instead_of_qt_abort():
     assert result.returncode == 1
     assert 'No graphical display is available for this account' in result.stderr
     assert 'Could not load the Qt platform plugin' not in result.stderr
+
+
+def test_package_tab_shows_versions_without_enabling_install(window, inventory):
+    inventory['package_inventory']['packages'] = [
+        {'name': 'niri', 'status': 'installed', 'reason': 'Observed local RPM header.',
+         'records': [{'epoch': 0, 'version': '26.04', 'release': '2.fc45', 'architecture': 'x86_64'}]},
+        {'name': 'noctalia', 'status': 'unknown', 'reason': 'RPM query timed out.', 'records': []},
+    ]
+    scan(window)
+    text = window.packages.toPlainText()
+    assert '0:26.04-2.fc45 (x86_64)' in text
+    assert 'Reuse needs verification' in text and 'RPM query timed out.' in text
+    assert 'originating repository' in text
+    assert not window.install_button.isEnabled()
+    window._scan_failed('Read failed')
+    assert window.packages.toPlainText() == ''

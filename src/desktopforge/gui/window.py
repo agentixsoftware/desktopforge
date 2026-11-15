@@ -234,6 +234,10 @@ class DesktopForgeWindow(QMainWindow):
         self.raw_json.setReadOnly(True)
         self.raw_json.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.tabs.addTab(self.raw_json, 'JSON details')
+        self.packages = QPlainTextEdit()
+        self.packages.setReadOnly(True)
+        self.packages.setObjectName('packageEvidence')
+        self.tabs.addTab(self.packages, 'Packages')
         preview.addWidget(self.tabs, 1)
         self.preservation = label('The plan must preserve your existing display manager, sessions and user configuration.', 'muted')
         preview.addWidget(self.preservation)
@@ -291,11 +295,12 @@ class DesktopForgeWindow(QMainWindow):
         self.review_button.setEnabled(False)
         self.refresh_button.setEnabled(False)
         self.plan_status.setText('Detecting…')
-        self.plan_summary.setText('Reading system evidence. No commands or installation actions are run.')
+        self.plan_summary.setText('Reading local system and package evidence. No installation actions are run.')
         self.operations.setRowCount(0)
         self.operations.hide()
         self.empty_operations.setText('Waiting for system detection.')
         self.empty_operations.show()
+        self.packages.clear()
         self.requirements.clear()
         self.raw_json.clear()
         self.sources.clear()
@@ -353,6 +358,7 @@ class DesktopForgeWindow(QMainWindow):
         self._set_choices_enabled(False)
         self.copy_button.setEnabled(False)
         self.review_button.setEnabled(False)
+        self.packages.clear()
         self.distribution_label.setText('Detection unavailable')
         for value in self.facts.values():
             value.setText('Unavailable')
@@ -401,6 +407,15 @@ class DesktopForgeWindow(QMainWindow):
             blockers = plan['blockers']
             self.tabs.setTabText(1, f'Requirements ({len(blockers)})')
             self.requirements.setPlainText('\n\n'.join(f'{i + 1}. {reason}' for i, reason in enumerate(blockers)))
+            assessment = plan.get('package_assessment', {})
+            package_lines = []
+            for package in assessment.get('packages', []):
+                versions = ', '.join(f"{row['epoch']}:{row['version']}-{row['release']} ({row['architecture']})" for row in package['records'])
+                package_lines.append(f"{package['name']}: {package['status']}" + (f' — {versions}' if versions else ''))
+                package_lines.append(package['reason'])
+                package_lines.append(('Reuse needs verification' if package['reuse'] == 'candidate_unverified' else 'No reuse candidate established') + '\n')
+            package_lines.extend(assessment.get('limitations', []))
+            self.packages.setPlainText('\n'.join(package_lines) or 'Package evidence unavailable.')
             sources = plan.get('recipe_sources', [])
             if sources:
                 self.sources.setHtml('<p>Reviewed source references; these do not certify installation support.</p>' + ''.join(
@@ -416,6 +431,7 @@ class DesktopForgeWindow(QMainWindow):
             self.operations.hide()
             self.empty_operations.setText('Plan unavailable. Review the error and refresh to retry.')
             self.empty_operations.show()
+            self.packages.clear()
             self.plan_status.setText('Plan unavailable')
             self.plan_summary.setText('No operations can be proposed for this selection.')
             self.requirements.setPlainText(str(exc))
