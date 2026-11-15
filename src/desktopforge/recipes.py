@@ -1,4 +1,4 @@
-"""Typed read-only recipe metadata. No arbitrary commands or write operations."""
+"""Typed recipe metadata and operation proposals; no command execution or writes."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,13 +6,12 @@ import json
 from pathlib import Path
 import re
 
+from .errors import RecipeError
+from .operations import Operation, PackageProposal, parse_operations
+
 DISTRIBUTIONS = ("fedora", "arch", "cachyos")
 COMPOSITORS = ("niri", "hyprland")
 SHELLS = ("noctalia", "dms", "ryoku")
-
-
-class RecipeError(ValueError):
-    """Recipe data does not satisfy the supported schema."""
 
 
 def _keys(value: object, expected: set[str], label: str) -> dict:
@@ -47,13 +46,18 @@ class Recipe:
     constraints: Constraints
     # Only unverified metadata is accepted until validation provenance is designed.
     status: str = "unverified"
+    operations: tuple[Operation, ...] = ()
 
 
 def parse_recipe(data: object) -> Recipe:
     """Reject unknown fields and unsupported operations rather than ignore them."""
-    data = _keys(data, {"schema_version", "id", "revision", "status", "constraints"}, "recipe")
-    if type(data["schema_version"]) is not int or data["schema_version"] != 1:
+    if not isinstance(data, dict):
+        raise RecipeError("Recipe must be an object")
+    version = data.get("schema_version")
+    if type(version) is not int or version not in (1, 2):
         raise RecipeError("Unsupported recipe schema_version")
+    expected = {"schema_version", "id", "revision", "status", "constraints"}
+    data = _keys(data, expected | ({"operations"} if version == 2 else set()), "recipe")
     if not isinstance(data["id"], str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", data["id"]):
         raise RecipeError("Recipe id must be a lowercase slug")
     if type(data["revision"]) is not int or data["revision"] < 1:
@@ -72,8 +76,12 @@ def parse_recipe(data: object) -> Recipe:
     managers = _strings(fields["display_managers"], "display_managers")
     if any(manager not in ("gdm", "sddm") for manager in managers):
         raise RecipeError("Unsupported display manager")
+    operations = parse_operations(data["operations"]) if version == 2 else ()
+    allowed_managers = ("dnf", "dnf5") if fields["distribution"] == "fedora" else ("pacman",)
+    if any(isinstance(op, PackageProposal) and op.package_manager not in allowed_managers for op in operations):
+        raise RecipeError("Package manager does not match recipe distribution")
     return Recipe(data["id"], data["revision"], Constraints(
-        fields["distribution"], versions, fields["compositor"], fields["shell"], managers))
+        fields["distribution"], versions, fields["compositor"], fields["shell"], managers), operations=operations)
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict:

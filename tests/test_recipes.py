@@ -39,7 +39,7 @@ def test_bundled_metadata_matches_reference_without_claiming_support(system):
 
 
 @pytest.mark.parametrize('key,value', [
-    ('schema_version', True), ('schema_version', 2), ('revision', False),
+    ('schema_version', True), ('schema_version', 3), ('revision', False),
     ('revision', 0), ('id', '../escape'), ('id', ''), ('status', 'verified'),
     ('steps', [{'type': 'run', 'command': 'touch /tmp/untrusted'}]),
 ])

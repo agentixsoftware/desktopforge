@@ -45,7 +45,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Session ID preview: {result['session_id_preview']}")
             for blocker in result["blockers"]:
                 print(f"Blocked: {blocker}")
-            print("No operations proposed. Preserve existing sessions, display manager and user configuration.")
+            if result["operations"]:
+                print("Operation proposals (not executed):")
+                for operation in result["operations"]:
+                    print(f"  {operation['id']} [{operation['privilege']}]: {operation['summary']}")
+            else:
+                print("No operations proposed.")
+            print("Preserve existing sessions, display manager and user configuration.")
         return 1
     if args.command == "detect":
         result = detect_system()
