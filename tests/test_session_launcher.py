@@ -375,3 +375,23 @@ def test_precheck_reports_stale_marker_without_modifying_it(env, tmp_path):
     assert result['status'] == 'blocked'
     assert any('unfinished DesktopForge attempt' in item for item in result['blockers'])
     assert marker.read_text() == 'unfinished fixture'
+
+
+def test_trial_skips_first_run_setup_without_touching_normal_profile(env, tmp_path):
+    # Fresh temporary trials should open the shell, not an onboarding flow that
+    # cannot persist across attempts. Disabling onboarding must not opt into telemetry.
+    normal = tmp_path / '.config/noctalia/config.toml'
+    normal.parent.mkdir(parents=True)
+    normal.write_text('[shell]\nsetup_wizard_enabled = true\n')
+    observed = []
+    def validate(argv, **kwargs):
+        if argv[:2] == ['/usr/bin/niri', 'validate']:
+            profiles = list((tmp_path / 'desktopforge').glob('launch-*/config/noctalia/config.toml'))
+            assert len(profiles) == 1
+            observed.append(profiles[0].read_text())
+        return reply()
+    assert run_session(env, nested=True, runner=validate, session_factory=TrialUnit,
+                       readiness=lambda *args: True, alive=lambda *args: True, sleep=lambda _: None) == 0
+    assert 'setup_wizard_enabled = false' in observed[0]
+    assert 'telemetry_enabled = false' in observed[0]
+    assert normal.read_text() == '[shell]\nsetup_wizard_enabled = true\n'

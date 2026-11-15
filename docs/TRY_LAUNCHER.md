@@ -73,8 +73,9 @@ never installed automatically. No downloaded installation script is used.
 Each run creates a fresh private directory under
 `$XDG_RUNTIME_DIR/desktopforge/launch-<attempt>-...` containing generated Niri
 configuration and isolated XDG config/state/cache/data directories. The generated
-Noctalia config disables its custom app-launch prefix and app-specific systemd
-services. It does not include an existing Niri config or system Noctalia config.
+Noctalia config skips first-run onboarding for the temporary trial, disables
+telemetry, and disables its custom app-launch prefix and app-specific systemd
+services. Each launch opens directly to the shell rather than repeating setup. It does not include an existing Niri config or system Noctalia config.
 Persistent user desktop configuration is not edited or migrated.
 
 A fresh private D-Bus session and a uniquely named transient service contain the

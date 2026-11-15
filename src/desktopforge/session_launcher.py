@@ -257,7 +257,8 @@ def run_session(env: Mapping[str, str], *, nested: bool, runner: Callable = run_
                 (directory / name).mkdir(mode=0o700)
             (directory / 'config/noctalia').mkdir(mode=0o700)
             # Avoid shell-selected commands and application escapes into unrelated user units.
-            shell_config = '[shell]\nlaunch_apps_as_systemd_services = false\nlaunch_apps_custom_command = ""\n'
+            shell_config = ('[shell]\nsetup_wizard_enabled = false\ntelemetry_enabled = false\n'
+                            'launch_apps_as_systemd_services = false\nlaunch_apps_custom_command = ""\n')
             _write_new(directory / 'config/noctalia/config.toml', shell_config)
             text = config_text(directory, lease.attempt_id, terminal)
             validate_config(text, runner)
