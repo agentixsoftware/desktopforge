@@ -8,20 +8,35 @@ import os
 from pathlib import Path
 import socket
 import stat
+import ssl
+import time
 import subprocess
 import threading
 
 ROOT = Path(__file__).resolve().parents[1] / '.desktopforge-vm'
+RUN = ROOT / 'run'
+SEED = ROOT / 'seed'
+SSH_PORT = 22220
+USE_TLS = False
+QMP_PORT = 22222
 
 
 def qmp(command, arguments=None):
-    path = ROOT / 'run/qmp.sock'
-    info = path.lstat()
-    if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
-        raise RuntimeError('VM control socket is not owned by this account')
-    with socket.socket(socket.AF_UNIX) as client:
+    if USE_TLS:
+        tls = RUN / 'tls'
+        context = ssl.create_default_context(cafile=str(tls / 'ca-cert.pem'))
+        context.load_cert_chain(str(tls / 'client-cert.pem'), str(tls / 'client-key.pem'))
+        client = context.wrap_socket(socket.create_connection(('127.0.0.1', QMP_PORT), timeout=10),
+                                     server_hostname='127.0.0.1')
+    else:
+        path = RUN / 'qmp.sock'
+        info = path.lstat()
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+            raise RuntimeError('VM control socket is not owned by this account')
+        client = socket.socket(socket.AF_UNIX)
         client.settimeout(10)
         client.connect(str(path))
+    with client:
         with client.makefile('rwb', buffering=0) as stream:
             json.loads(stream.readline())
             for name, args in [('qmp_capabilities', None), (command, arguments)]:
@@ -38,39 +53,67 @@ def qmp(command, arguments=None):
             return result['return']
 
 
-def start(accelerator):
+def start(accelerator, show=False):
     kvm_available = os.access('/dev/kvm', os.R_OK | os.W_OK)
     if accelerator == 'auto':
         accelerator = 'kvm' if kvm_available else 'tcg'
     if accelerator == 'kvm' and not kvm_available:
         raise RuntimeError('KVM requested, but /dev/kvm is not accessible to this account/session')
-    for relative in ('run/guest.qcow2', 'keys/id_ed25519', 'seed/user-data', 'seed/meta-data', 'run/image-verification.json'):
-        if not (ROOT / relative).is_file():
-            raise RuntimeError('VM has not been prepared: missing ' + relative)
-    path = ROOT / 'run/qmp.sock'
-    if path.exists():
+    for path in (RUN / 'guest.qcow2', ROOT / 'keys/id_ed25519', SEED / 'user-data', SEED / 'meta-data', RUN / 'image-verification.json'):
+        if not path.is_file():
+            raise RuntimeError('VM has not been prepared: missing ' + str(path))
+    path = RUN / 'qmp.sock'
+    if USE_TLS or path.exists():
         try:
             qmp('query-status')
         except ConnectionRefusedError:
-            path.unlink()
+            if not USE_TLS:
+                path.unlink()
         else:
             raise RuntimeError('VM is already running')
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ROOT / 'seed'))
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(SEED))
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     port = server.server_address[1]
     args = ['qemu-system-x86_64', '-name', 'desktopforge-fedora45', '-machine', f'q35,accel={accelerator}',
             '-cpu', 'host' if accelerator == 'kvm' else 'max', '-smp', '2', '-m', '4096',
-            '-drive', f'file={ROOT}/run/guest.qcow2,format=qcow2,if=virtio',
-            '-netdev', 'user,id=network0,hostfwd=tcp:127.0.0.1:22220-:22',
+            '-drive', f'file={RUN}/guest.qcow2,format=qcow2,if=virtio',
+            '-netdev', f'user,id=network0,hostfwd=tcp:127.0.0.1:{SSH_PORT}-:22',
             '-device', 'virtio-net-pci,netdev=network0', '-device', 'virtio-vga',
-            '-device', 'virtio-rng-pci', '-display', 'none', '-serial', f'file:{ROOT}/run/serial.log',
-            '-qmp', f'unix:{path},server=on,wait=off',
+            '-device', 'virtio-rng-pci', '-display', 'gtk,gl=off' if show else 'none', '-serial', f'file:{RUN}/serial.log',
             '-smbios', f'type=1,serial=ds=nocloud;s=http://10.0.2.2:{port}/', '-no-reboot']
+    if USE_TLS:
+        args += ['-object', f'tls-creds-x509,id=console-tls,endpoint=server,dir={RUN}/tls,verify-peer=on',
+                 '-chardev', f'socket,id=console,host=127.0.0.1,port={QMP_PORT},server=on,wait=off,tls-creds=console-tls',
+                 '-mon', 'chardev=console,mode=control']
+    else:
+        args += ['-qmp', f'unix:{path},server=on,wait=off']
     try:
-        with (ROOT / 'run/qemu.log').open('ab') as log:
-            print(f'Starting disposable guest ({accelerator}); SSH on 127.0.0.1:22220', flush=True)
-            process = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        with (RUN / 'qemu.log').open('ab') as log:
+            print(f'Starting disposable guest ({accelerator}); SSH on 127.0.0.1:{SSH_PORT}', flush=True)
+            process = subprocess.Popen(args, cwd=ROOT.parent, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+            try:
+                if USE_TLS:
+                    # Resize only this disposable disk, before first-boot growpart runs.
+                    for attempt in range(100):
+                        if process.poll() is not None:
+                            raise RuntimeError('QEMU exited during startup; inspect the private qemu.log')
+                        try:
+                            blocks = qmp('query-block')
+                            disk = next(b for b in blocks if b.get('inserted', {}).get('drv') == 'qcow2')
+                            if disk['inserted']['image']['virtual-size'] < 16 * 1024**3:
+                                qmp('block_resize', {'device': disk['device'], 'size': 16 * 1024**3})
+                            break
+                        except ConnectionRefusedError:
+                            time.sleep(0.1)
+                    else:
+                        process.terminate()
+                        process.wait()
+                        raise RuntimeError('Console did not become available during startup')
+            except Exception:
+                process.terminate()
+                process.wait(timeout=10)
+                raise
             while True:
                 try:
                     return process.wait(timeout=30)
@@ -81,19 +124,27 @@ def start(accelerator):
 
 
 def main():
+    global RUN, SEED, SSH_PORT, USE_TLS
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--accelerator', choices=('auto', 'tcg', 'kvm'), default='auto',
                         help='Start mode; auto uses accessible KVM, otherwise software emulation')
+    parser.add_argument('--show', action='store_true', help='Show the guest in a QEMU window')
+    parser.add_argument('--profile', choices=('default', 'kvm'), default='default')
     parser.add_argument('action', choices=('start', 'status', 'ssh', 'screenshot', 'stop'))
     parser.add_argument('command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
+    if args.profile == 'kvm':
+        RUN = ROOT / 'run-kvm'
+        SEED = ROOT / 'seed-kvm'
+        SSH_PORT = 22221
+        USE_TLS = True
     if not ROOT.is_dir() or ROOT.is_symlink() or ROOT.stat().st_uid != os.getuid():
         parser.error('Private VM state directory is missing or not owned by this account')
     if args.action == 'start':
-        return start(args.accelerator)
+        return start(args.accelerator, args.show)
     if args.action == 'ssh':
         return subprocess.call(['ssh', '-F', '/dev/null', '-i', str(ROOT / 'keys/id_ed25519'),
-            '-p', '22220', '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
+            '-p', str(SSH_PORT), '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
             '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new',
             '-o', f'UserKnownHostsFile={ROOT}/keys/known_hosts', 'dfvm@127.0.0.1', *args.command])
     if args.action == 'status':
@@ -103,8 +154,11 @@ def main():
         qmp('system_powerdown')
         print('Requested graceful guest shutdown.')
     elif args.action == 'screenshot':
-        destination = ROOT / 'run/screen.ppm'
-        qmp('screendump', {'filename': str(destination)})
+        destination = RUN / 'screen.ppm'
+        # The two collaborating accounts may see different bind-mount prefixes.
+        # QEMU's cwd is fixed to the checkout; a relative path works for both.
+        server_path = str(destination.relative_to(ROOT.parent)) if USE_TLS else str(destination)
+        qmp('screendump', {'filename': server_path})
         print(destination)
     return 0
 

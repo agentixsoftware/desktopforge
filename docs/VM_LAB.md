@@ -89,3 +89,37 @@ and `./scripts/desktopforge-vm --accelerator tcg start`. An explicit KVM request
 fails before launch if the device is inaccessible. Accelerator selection applies
 only at a subsequent start; it never restarts a running guest or changes host
 permissions, kernel modules or group membership.
+
+## Accelerated guest across the two development accounts
+
+The normal `ryoku` terminal reports KVM access; the tool runtime does not. A separate
+`kvm` profile has been prepared from the verified base image. It uses private
+`run-kvm/` and `seed-kvm/` state, SSH on loopback port 22221, and QMP on loopback
+port 22222 protected by mutual TLS. Both server identity and the client certificate
+are verified. The private CA and all keys remain in the ignored lab directory;
+no host trust store is modified. This avoids relying on a Unix socket traversing
+the shared bind mount under different account path prefixes.
+
+Launch from the normal ryoku terminal using the existing shared checkout:
+
+```bash
+cd /home/ryoku/vick/Projects/desktopforge
+./scripts/desktopforge-vm --profile kvm --accelerator kvm --show start
+```
+
+Leave that terminal and the VM window open while testing. The tool account can
+then use the same helper through its own checkout path:
+
+```bash
+./scripts/desktopforge-vm --profile kvm status
+./scripts/desktopforge-vm --profile kvm ssh 'cat /etc/fedora-release; id'
+./scripts/desktopforge-vm --profile kvm screenshot
+./scripts/desktopforge-vm --profile kvm stop
+```
+
+The accelerated profile was smoke-tested before guest boot: authenticated QMP
+queries worked, a client without a certificate was disconnected, and the separate
+disk expanded to 16 GiB. Hardware boot and the visible GTK window require the
+normal host launch and are not yet recorded as verified. The original emulated
+guest is paused with its in-flight RPM transaction preserved; it is not a completed
+baseline and its disk must not be reused concurrently by this new profile.
