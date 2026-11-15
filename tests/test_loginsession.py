@@ -81,6 +81,9 @@ class FakeManager:
         self.outputs, self.start_status = outputs, start_status
         self.graphical_active, self.run_for = graphical_active, run_for
         self.unit, self.calls = 'inactive', []
+        self.failed = {'old-broken.service'}
+        self.part_of = {'xdg-desktop-portal-gnome.service': 'graphical-session.target',
+                        'old-broken.service': 'graphical-session.target', 'backup.service': ''}
 
     def __call__(self, argv, timeout=60, env=None):
         self.calls.append(argv)
@@ -102,6 +105,13 @@ class FakeManager:
             if unit == ls.GRAPHICAL:
                 return (0 if self.graphical_active else 3), ''
             return (0 if self.unit == 'active' else 3), ''
+        if verb == 'list-units':
+            return 0, ''.join(f'{u} loaded failed failed x\n' for u in sorted(self.failed))
+        if verb == 'reset-failed':
+            self.failed -= set(argv[3:])
+            return 0, ''
+        if verb == 'show' and argv[3] == '--property=PartOf':
+            return 0, self.part_of.get(argv[-1], '') + '\n'
         if verb == 'show':
             if self.unit == 'active':
                 self.run_for -= 1
@@ -111,6 +121,8 @@ class FakeManager:
         if verb == 'stop':
             if PROFILE['unit'] in argv:
                 self.unit = 'inactive'
+            if ls.GRAPHICAL in argv:  # portals lost their compositor and failed
+                self.failed |= {'xdg-desktop-portal-gnome.service', 'backup.service'}
             return 0, ''
         if verb == 'unset-environment':
             for name in argv[3:]:
@@ -195,3 +207,12 @@ def test_launcher_is_self_contained_for_root_owned_install():
             assert {a.name for a in node.names} <= stdlib
         elif isinstance(node, ast.ImportFrom):
             raise AssertionError('launcher must not import from packages')
+
+
+def test_only_graphical_session_units_that_failed_during_the_session_are_reset(tmp_path):
+    manager = FakeManager()
+    lf, logs = launcher(manager, tmp_path)
+    assert lf.launch() == 0
+    # The pre-existing failure and an unrelated unit stay visible as failed.
+    assert manager.failed == {'old-broken.service', 'backup.service'}
+    assert "reset failed graphical-session units: ['xdg-desktop-portal-gnome.service']" in logs

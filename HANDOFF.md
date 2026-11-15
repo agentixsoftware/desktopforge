@@ -32,6 +32,15 @@ Later session, 2026-11-14:
   `--show`, and the agent drives it over SSH/QMP. If that window is closed, ask
   them to rerun the documented `--show start` command (or boot headless yourself).
   Announce before sending keystrokes or triggering Polkit dialogs.
+- Niri needs 3D: the user starts the VM with `--gl` (virgl). QMP `screendump` then
+  fails ("no surface"); inside Niri use `niri msg action screenshot-screen`. For GDM
+  logins without sight, preselect via AccountsService `SetSession` and restart gdm
+  (log both in the guest's `~/evidence/lab-admin.log`). Never type the password
+  without a confirmed dialog/greeter focus.
+- Latest: Fedora 45 Niri + Noctalia lab recipe revision 2 installed in the
+  running guest through the helper; its session uses the `desktopforge-session`
+  launcher and passed login/logout/cleanup/GNOME checks (docs/LAB_HELPER.md).
+  Backups: `gnome-baseline-2026-11-14`, `pre-niri-2026-11-14`.
 
 ## 1. Read this first
 

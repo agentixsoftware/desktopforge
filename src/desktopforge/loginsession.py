@@ -157,6 +157,15 @@ class Launcher:
         code, _out = self.run([SYSTEMCTL, '--user', 'is-active', '--quiet', unit])
         return code == 0
 
+    def failed_units(self):
+        code, out = self.run([SYSTEMCTL, '--user', 'list-units', '--state=failed', '--plain',
+                              '--no-legend', '--no-pager'])
+        return {line.split()[0] for line in out.splitlines() if line.strip()} if code == 0 else set()
+
+    def belongs_to_graphical_session(self, unit):
+        _code, out = self.run([SYSTEMCTL, '--user', 'show', '--property=PartOf', '--value', unit])
+        return GRAPHICAL in out.split()
+
     def request_stop(self, *_args):
         self.stop_requested = True
 
@@ -193,6 +202,7 @@ class Launcher:
         if self.is_active(GRAPHICAL):
             raise LaunchRefused('another graphical session is active for this user')
         before = self.manager_environment()
+        self.failed_before = self.failed_units()
         environment = select_environment(self.env, self.profile)
         self.log(f'starting {unit} with {", ".join(environment)}')
         code, _out = self.run(unit_argv(self.profile, environment), timeout=90)
@@ -222,6 +232,14 @@ class Launcher:
         else:
             self.log(f'{unit} did not stop; environment cleanup skipped')
             return
+        # Graphical-session services (e.g. portals) often exit with an error when the
+        # compositor goes away before the target stops them. Reset only those that
+        # failed during this session; the journal keeps their messages.
+        new = sorted(u for u in self.failed_units() - getattr(self, 'failed_before', set())
+                     if self.belongs_to_graphical_session(u))
+        if new:
+            self.run([SYSTEMCTL, '--user', 'reset-failed', *new])
+        self.log(f'reset failed graphical-session units: {new or "none"}')
         try:
             current = self.manager_environment()
         except LaunchRefused:

@@ -180,6 +180,46 @@ of the whole login environment and stay independent of global `niri.service`
 drop-ins such as the reference laptop's Ryoku hooks. Separately, install records
 are needed so DesktopForge recognizes sessions it installed.
 
+## DesktopForge session launcher (2026-11-15, recipe revision 2)
+
+`src/desktopforge/loginsession.py` is installed root-owned as `desktopforge-session`;
+the session entry runs `desktopforge-session niri-noctalia`. It is stdlib-only,
+runs as the user, and is started by GDM. It:
+
+- refuses if `graphical-session.target` or its own unit is already active
+- runs `niri --session --config …` as the transient user unit
+  `desktopforge-niri-noctalia.service` in `session.slice`, with the dependencies
+  `BindsTo=`/`Before=graphical-session.target`, `graphical-session-pre.target` and
+  `xdg-desktop-autostart.target`. These mirror `niri.service`, but the unit uses
+  its own name, so global `niri.service` drop-ins do not apply
+- passes only allowlisted login variables (`XDG_SESSION_ID`, seat/VT, session
+  names, `LANG`, `LC_*`) and forces `XDG_CURRENT_DESKTOP=niri`
+- after `READY`, records which of the five variables niri published, and ends
+  the session if niri reports no outputs, so GDM returns instead of a black screen
+- on compositor exit or logout signal: stops the unit and graphical targets;
+  resets only graphical-session units that failed during this session; unsets
+  or restores only variables still equal to what it published; removes the
+  display's socket/lock files and Noctalia's lock only when no one holds the lock
+
+| Check (virgl guest) | Result |
+| --- | --- |
+| Install with existing packages | Preview "No packages need to be installed / reused unchanged: niri, noctalia"; config and session entry created |
+| Login | Unit active in `session.slice` with only allowlisted variables; `graphical-session.target`, `-pre` and `xdg-desktop-autostart.target` active |
+| Portals | `org.freedesktop.portal.Desktop` activated with GNOME and GTK backends |
+| Logout (Super+Shift+E) | Launcher unset all 5 variables, removed `wayland-1`, its lock and `noctalia-wayland-1.lock`; units and targets inactive; no processes |
+| Portal failures | `xdg-desktop-portal-gnome`/`-gtk` exit 1 when the compositor disappears (same as with `niri.service`); the launcher resets just those and logs them; no failed units remain |
+| Next GNOME login | `GDMSESSION=gnome`, no `NIRI_SOCKET`, no failed units |
+
+The no-display fallback is covered by unit tests only; it has not run on the
+non-virgl VM yet. D-Bus activation-environment values set by niri cannot be
+removed through `UpdateActivationEnvironment`; dbus-broker launches
+`SystemdService=` activations through the user manager, whose environment is
+cleaned.
+
+Lab note: a blind password entry went into a terminal (echoed on screen, in no
+file) because a wait loop's `pgrep -f` matched its own command line. Waits now
+use the helper's journal.
+
 ## Not yet covered
 
 The helper has not yet been tested for caller disconnect during an apply
