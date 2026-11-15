@@ -1,11 +1,12 @@
 """Agent lab tool: type into the KVM guest via authenticated QMP. --secret reads a file and never echoes it.
 
-Usage: qmp-sendkeys.py (--secret FILE | --text TEXT | --key QCODE...)
+Usage: [DESKTOPFORGE_VM_PROFILE=kvm|sddm] qmp-sendkeys.py (--secret FILE | --text TEXT | --key QCODE...)
 """
 import importlib.machinery, importlib.util, sys, time
 loader = importlib.machinery.SourceFileLoader('dfvm', str(__import__('pathlib').Path(__file__).resolve().parents[2] / 'scripts/desktopforge-vm'))
 spec = importlib.util.spec_from_loader('dfvm', loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
-m.RUN = m.ROOT / 'run-kvm'; m.USE_TLS = True
+import os
+m.select_profile(os.environ.get('DESKTOPFORGE_VM_PROFILE', 'kvm'))  # which VM receives the keys
 SHIFTED = {'!':'1','@':'2','#':'3','$':'4','%':'5','^':'6','&':'7','*':'8','(':'9',')':'0','_':'minus','+':'equal',
            '{':'bracket_left','}':'bracket_right','|':'backslash',':':'semicolon','"':'apostrophe','<':'comma','>':'dot','?':'slash','~':'grave_accent'}
 PLAIN = {'-':'minus','=':'equal','[':'bracket_left',']':'bracket_right','\\':'backslash',';':'semicolon',"'":'apostrophe',
