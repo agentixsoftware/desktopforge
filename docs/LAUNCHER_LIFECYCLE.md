@@ -117,3 +117,11 @@ per-user lease, unfinished-attempt markers, config descriptor pinning and direct
 child control. They do not implement the model's shared-manager environment
 revision semantics, runtime readiness or full session shutdown. There is no
 adapter that executes these modeled effects against the installed desktop.
+
+## Runnable candidate strategy
+
+The [runnable launcher candidate](TRY_LAUNCHER.md) avoids shared-manager environment
+publication entirely. The earlier snapshot/revision model remains a tested design
+study, not an adapter executed by the candidate. Runtime shutdown instead checks
+its uniquely owned service and cgroup. Graphical integration/VM validation is
+still pending; the model's success states do not certify the candidate.

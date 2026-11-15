@@ -1,8 +1,9 @@
 """Internal Linux launcher primitives, not an installed desktop session launcher.
 
 Unlike the planner/model this module performs OS operations when explicitly called:
-private runtime files, advisory locks, and owned child processes. Production CLI
-commands never call it. Commands may come only from trusted Python code, never
+private runtime files, advisory locks, and owned child processes. Read-only
+inventory/planning commands never call it. The experimental session entry point
+uses the lease; its service/cgroup adapter replaces direct-child supervision. Commands may come only from trusted Python code, never
 recipe fields. No systemd/D-Bus/environment publication adapter exists yet.
 """
 from __future__ import annotations

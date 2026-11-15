@@ -155,7 +155,7 @@ def test_layout_is_explicitly_incomplete_and_target_specific():
     assert layout['user_config']['relative_path'].startswith('desktopforge/sessions/')
     assert layout['user_config']['fragment_preview'] == 'spawn-at-startup "noctalia"\n'
     assert layout['system_files'][1]['content_preview'] is None
-    assert layout['launch_contract']['compositor_argv'] == ['niri-session']
+    assert layout['launch_contract']['compositor_argv'] == ['/usr/bin/niri', '--config', '<generated-private-config>']
     assert not layout['executable'] and not layout['complete']
     assert session_layout_preview('niri-noctalia-v5', 'desktopforge-niri-ryoku', 'niri', 'ryoku') is None
     with pytest.raises(RecipeError):

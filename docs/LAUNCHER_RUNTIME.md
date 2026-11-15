@@ -135,3 +135,14 @@ Python documents the underlying
 The [Niri packaging guide](https://github.com/niri-wm/niri/wiki/Packaging-niri)
 provides upstream context; local wrapper observations are installation-specific,
 not a compatibility claim for all Niri versions.
+
+## Runnable launcher candidate
+
+The original primitives above remain separate from the production CLI's read-only
+inventory commands. A new `desktopforge-session` entry point now uses a different
+systemd-backed orchestration layer: unique transient service/cgroup ownership,
+private D-Bus, generated private path-based config and no shared manager imports.
+It does not treat direct-child exit or the model's revision tokens as full-session
+proof. See [try the launcher](TRY_LAUNCHER.md) for runnable nested/TTY modes and
+remaining integration limits. It is an experimental candidate, not a certified
+production session or installer.

@@ -106,3 +106,9 @@ Native locking, marker, config-descriptor and direct-child components now exist
 in a separate internal module; see [native runtime scope](LAUNCHER_RUNTIME.md).
 They are not invoked by detection/planning and do not make the draft launcher
 installable or provide a complete session runtime.
+
+The current trial candidate invokes Niri directly under its own transient service
+and private D-Bus, without the earlier `niri-session` import/restore strategy.
+Plan previews identify that [experimental runtime](TRY_LAUNCHER.md), while installed
+login-session layouts remain incomplete and blocked. Static preflight still does
+not grant production installation eligibility.

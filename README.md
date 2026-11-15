@@ -78,3 +78,18 @@ per-user locking, unfinished-attempt markers, pinned read-only config descriptor
 and pidfd-based direct-child control. Tests use temporary files and trusted
 fixture processes only. There is no production launch command or installed
 session launcher; all inventory and planning commands remain read-only.
+
+## Try the runnable launcher
+
+From the repository root, in your actual Wayland desktop account's terminal:
+
+```bash
+PYTHONPATH=src python3 -m desktopforge.session_launcher --nested --check
+PYTHONPATH=src python3 -m desktopforge.session_launcher --nested
+```
+
+This experimental Niri + Noctalia candidate opens a separate nested window using
+fresh config, a private D-Bus session and its own transient user service. Quit
+with Super+Shift+E or Ctrl+C in the launching terminal. It installs nothing and
+does not alter existing desktop config/services. VM-tested production support is
+still pending. See [trial instructions, standalone mode and diagnostics](docs/TRY_LAUNCHER.md).
