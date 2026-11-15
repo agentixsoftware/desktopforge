@@ -191,7 +191,8 @@ def test_niri_recipe_summary_discloses_package_session_and_user_config(helper):
     text = '\n'.join(summary)
     assert 'niri 0:26.04-2.fc45 [fedora]' in text and 'no weak dependencies' in text
     assert 'Already installed and reused unchanged: noctalia' in text
-    assert 'Fedora\'s own "Niri" login session' in text and '~/.config/noctalia' in text
+    assert 'Fedora\'s own "Niri" login session' in text and '~/.local/state/noctalia' in text
+    assert 'github.com/noctalia-dev' in text
     assert 'refuses software rendering' in text and 'choose another session' in text
 
 

@@ -330,3 +330,10 @@ def test_all_plan_tabs_are_visible_at_minimum_window_width(window, app):
     assert window.tabs.tabText(4) == 'Packages'
     for index in range(window.tabs.count()):
         assert bar.rect().contains(bar.tabRect(index)), window.tabs.tabText(index)
+
+
+def test_application_has_a_desktopforge_wayland_app_id(app):
+    # Seen in the Niri session: the window's app ID was "python3".
+    from desktopforge.gui.window import configure_application
+    configure_application(app)
+    assert app.desktopFileName() == 'dev.desktopforge.DesktopForge'

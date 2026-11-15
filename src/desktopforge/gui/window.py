@@ -58,6 +58,8 @@ QSplitter::handle { background: transparent; width: 12px; }
 def configure_application(app: QApplication) -> None:
     app.setApplicationName('DesktopForge')
     app.setOrganizationName('DesktopForge')
+    # Wayland app ID; without it compositors see the interpreter name ('python3').
+    app.setDesktopFileName('dev.desktopforge.DesktopForge')
     app.setStyle('Fusion')
     palette = QPalette()
     palette.setColor(QPalette.ColorRole.Window, QColor('#10151e'))

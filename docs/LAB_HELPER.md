@@ -158,6 +158,28 @@ Next: `scripts/desktopforge-vm --gl` gives the guest a virgl 3D GPU
 (`virtio-vga-gl`, host OpenGL). Recipes need a real rendering preflight
 (hardware or virgl EGL, not llvmpipe) rather than only a disclosure note.
 
+## Niri + Noctalia with a virgl GPU (2026-11-15, `--gl`)
+
+| Check | Result |
+| --- | --- |
+| Guest GPU | `virtio_gpu` with `+virgl`; QMP `screendump` returns "no surface" with `gtk,gl=on`, so screenshots come from `niri msg action screenshot-screen` inside the session |
+| Login | Niri drives `Virtual-1` at 1496×850 with `/etc/desktopforge/sessions/niri-noctalia.kdl`; Noctalia bar, wallpaper and first-run wizard shown |
+| Keybindings from the DesktopForge config | Hotkey overlay lists them; Super+Space opens the Noctalia launcher; Super+T opens Ptyxis; Super+Shift+E asks for confirmation and exits |
+| DesktopForge inside the session | Inventory: current desktop `niri · wayland`, active shell Noctalia (environment hint), both found on PATH. **It offered `desktopforge-niri-noctalia-2`**: without install records it does not recognize its own installed session |
+| Noctalia first start | Telemetry logged as disabled (the default). Blobless clones of `github.com/noctalia-dev/official-plugins` and `community-plugins` into `~/.local/state/noctalia`; data in `~/.local/state`, `~/.cache` and an empty `~/.config/noctalia`. Disclosure corrected |
+| `import environment shell exited with exit status: 1` | Harmless for variables: they were imported into the user manager |
+| systemd integration | `graphical-session.target` and `xdg-desktop-portal` stayed inactive: running `niri --session` directly bypasses `niri.service`, so no portals or XDG autostart |
+| After logout (Super+Shift+E) | No processes. **Leak:** the still-running user manager kept `WAYLAND_DISPLAY`, `DISPLAY`, `XDG_CURRENT_DESKTOP=niri` and a stale `NIRI_SOCKET`; `/run/user/1000` kept `wayland-1`, its lock and Noctalia's lock |
+| Next GNOME login | `GDMSESSION=gnome`; gnome-shell and new user services saw GNOME values and no `NIRI_SOCKET`. Leaked values were not observed there in this run |
+
+The remaining work is a DesktopForge session launcher. It should start
+`graphical-session.target` the way `niri.service` does, so portals and autostart
+work, and on exit remove exactly the variables and runtime files it introduced
+(as `niri-session` does for its five). It must also avoid `niri-session`'s import
+of the whole login environment and stay independent of global `niri.service`
+drop-ins such as the reference laptop's Ryoku hooks. Separately, install records
+are needed so DesktopForge recognizes sessions it installed.
+
 ## Not yet covered
 
 The helper has not yet been tested for caller disconnect during an apply

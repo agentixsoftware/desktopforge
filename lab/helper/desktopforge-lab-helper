@@ -69,7 +69,9 @@ RECIPES = {
             'Type': 'Application', 'DesktopNames': 'niri'}}],
      'notes': ['Installing the niri package also adds Fedora\'s own "Niri" login session '
                '(owned by that package; it uses ~/.config/niri, not the DesktopForge config).',
-               'Noctalia creates its own settings in ~/.config/noctalia the first time it starts.',
+               'Noctalia keeps its own per-user data in ~/.local/state/noctalia, ~/.cache/noctalia and '
+               '~/.config/noctalia. On first start it downloads its plugin catalogs from '
+               'github.com/noctalia-dev (no plugins are installed); its telemetry is off by default.',
                'Mod+T opens Ptyxis, which Fedora Workstation already provides; it is not installed here.',
                'Niri needs hardware-accelerated graphics and refuses software rendering. Without a supported '
                'GPU (for example a VM without 3D acceleration) this session shows no picture; choose another '
