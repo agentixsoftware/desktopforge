@@ -11,6 +11,7 @@ import re
 import shutil
 
 from .packages import inspect_packages
+from .repositories import inspect_repositories
 from .preflight import inspect_preflight
 from .session_analysis import SHELL_EXECUTABLES, inspect_processes, session_analysis
 from pathlib import Path
@@ -167,6 +168,7 @@ def detect_system(
         "package_inventory": inspect_packages(distro.get("ID"), root,
             executables={**compositor_evidence, **{f'shell:{k}': v for k, v in shell_evidence.items()},
                          'session:niri': command_evidence['niri-session']}),
+        "repository_evidence": inspect_repositories(root, distro.get("ID")),
         "command_evidence": command_evidence,
         "preflight_evidence": preflight,
         "distribution": {

@@ -434,6 +434,16 @@ class DesktopForgeWindow(QMainWindow):
                     package_lines.extend(finding['reasons'])
                 package_lines.append('')
             package_lines.extend(assessment.get('limitations', []))
+            repositories = plan.get('repository_assessment', {})
+            if repositories.get('declarations'):
+                package_lines.extend(['', 'Repository declarations (effective policy and package origin unknown):'])
+                labels = {'declared_on': 'on', 'declared_off': 'off', 'unspecified': 'unspecified', 'unknown': 'unknown'}
+                for repo in repositories['declarations']:
+                    flags = ', '.join(f"{flag}: {labels[repo[flag]]}" for flag in ('enabled', 'gpgcheck', 'pkg_gpgcheck', 'repo_gpgcheck'))
+                    package_lines.append(f"{repo['id']} · {flags}")
+                if repositories.get('duplicate_ids'):
+                    package_lines.append('Duplicate IDs require review: ' + ', '.join(repositories['duplicate_ids']))
+            package_lines.extend(repositories.get('limitations', []))
             self.packages.setPlainText('\n'.join(package_lines) or 'Package evidence unavailable.')
             sources = plan.get('recipe_sources', [])
             if sources:

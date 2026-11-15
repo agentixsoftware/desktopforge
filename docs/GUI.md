@@ -115,3 +115,18 @@ not infer command roles (launcher or management tool) from their names.
 Package presence never enables Install or satisfies recipe validation.
 The queries use RPM's documented [query operation](https://rpm.org/docs/6.0.x/man/rpm.8)
 and [query format](https://rpm.org/docs/6.0.x/man/rpm-queryformat.7).
+
+The Packages tab also lists recipe command roles and required package major
+versions. A requirement is observed only when its command path and unique RPM
+owner match; a required major version must match installed package records.
+These observations leave the plan blocked and reuse unverified.
+
+For Fedora, repository declarations are inspected in the three default
+[DNF5 repository directories](https://dnf5.readthedocs.io/en/latest/dnf5.conf.5.html):
+`/etc/yum.repos.d`, `/etc/distro.repos.d`, and `/usr/share/dnf5/repos.d`.
+Only IDs and literal enabled/signature-check flags are reported. Unspecified
+flags stay unspecified; defaults, custom directories, overrides, plugins and
+key trust are not resolved. Duplicate IDs remain visible for review. Files are
+read with size limits and without following symlinks; invalid files are reported
+without including their contents. No URLs, credentials or key locations are
+collected. Repository declarations cannot certify installed-package provenance.

@@ -41,3 +41,8 @@ QT_QPA_PLATFORM=offscreen .venv-gui/bin/python -m pytest -q
 The core CLI has no Qt dependency. GUI tests are skipped when PySide6 is absent;
 they run in full in the GUI environment using Qt's offscreen platform. See
 [GUI scope and validation](GUI.md). No privileged helper or installer is invoked.
+
+Read-only inventory also reports static Fedora repository declarations from the
+three default DNF5 repository directories. It parses only IDs and literal flags,
+never evaluates URLs or downloads metadata, and does not resolve effective DNF
+policy or installed-package origin. See [GUI evidence](GUI.md) for the limits.

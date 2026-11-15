@@ -17,7 +17,7 @@ Version 0.1 (draft) | 2026-11-14
 
 ## Milestone 2 — Secure installation foundation
 - Implement narrow privileged helper, polkit policy, journal, backup/conflict handling, and verification.
-- Create VM test harness and failure injection.
+- Create VM test harness and failure injection; use [installation validation gates](docs/VM_VALIDATION.md).
 
 **Exit:** Automated installation of the Fedora + Niri + Noctalia reference session without altering GNOME/GDM.
 
@@ -60,3 +60,9 @@ planning are implemented. An early Milestone 3 GUI now exposes this core through
 system inventory, target choices and plan/requirements views. This is a preview
 with installation permanently unavailable; it does not imply completion of the
 Milestone 2 privileged helper or VM installation/lifecycle validation.
+
+Recipe command roles, exact RPM owner checks and optional package-major
+requirements are now assessed from read-only inventory. Fedora repository IDs
+and declared flags are visible as static evidence; effective repository policy,
+key trust and installed-package origin remain unverified. This is not a completed
+installation preflight or approval to apply a plan.

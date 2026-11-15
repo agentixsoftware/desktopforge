@@ -305,3 +305,17 @@ def test_packages_tab_displays_both_ryoku_command_owners(window, inventory):
     assert 'ryoku-shell: /usr/bin/ryoku-shell → ryoku-shell · matches package name' in text
     assert not window.install_button.isEnabled()
     assert window.plan['status'] == 'blocked'
+
+
+def test_packages_tab_explains_recipe_roles_and_static_repository_flags(window, inventory):
+    inventory['repository_evidence'] = {
+        'status': 'static_only', 'declarations': [
+            {'id': 'fedora', 'enabled': 'declared_on', 'gpgcheck': 'unspecified',
+             'pkg_gpgcheck': 'unspecified', 'repo_gpgcheck': 'declared_off'}],
+        'duplicate_ids': [], 'limitations': ['Installed-package origin remains unknown.']}
+    scan(window)
+    text = window.packages.toPlainText()
+    assert 'noctalia · shell launcher · noctalia · major 5' in text
+    assert 'fedora · enabled: on, gpgcheck: unspecified' in text
+    assert 'Installed-package origin remains unknown.' in text
+    assert not window.install_button.isEnabled()
