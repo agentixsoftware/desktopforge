@@ -1,12 +1,13 @@
 [Unit]
-Description=DesktopForge VM-lab helper (synthetic recipes only)
+Description=DesktopForge VM-lab helper (built-in lab recipes only)
 
 [Service]
 Type=dbus
 BusName=org.desktopforge.LabHelper1
 ExecStart=/usr/bin/python3 -Is /usr/local/libexec/desktopforge-lab/desktopforge-lab-helper
 # Root UID is needed only so Polkit accepts checks for another subject.
-# No capabilities or network; only its StateDirectory is writable.
+# No capabilities or network; only its StateDirectory and the session
+# directory are writable.
 CapabilityBoundingSet=
 AmbientCapabilities=
 NoNewPrivileges=yes
@@ -32,3 +33,4 @@ SystemCallFilter=~@privileged @resources
 UMask=0022
 StateDirectory=desktopforge-lab
 StateDirectoryMode=0755
+ReadWritePaths=/usr/share/wayland-sessions

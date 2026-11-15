@@ -7,7 +7,10 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from desktopforge.helper import sessions
+
 REPO = Path(__file__).resolve().parents[1]
+EMPTY = {'markers': [], 'sessions': []}
 LAB = REPO / 'lab/helper'
 
 
@@ -16,34 +19,72 @@ def helper():
     return runpy.run_path(str(LAB / 'desktopforge-lab-helper'))
 
 
+def plan(helper, recipe, current=EMPTY, names=None):
+    return helper['build_plan'](recipe, current, names or {}, sessions.render, sessions.session_filename)
+
+
 @pytest.mark.parametrize('recipe', ['', 'LAB-SYNTHETIC-MARKER', '../etc', 'lab-synthetic-marker\n',
                                     'fedora45-niri-noctalia', None, 'x' * 65])
-def test_only_built_in_synthetic_recipes_are_accepted(helper, recipe):
+def test_only_built_in_lab_recipes_are_accepted(helper, recipe):
     with pytest.raises(helper['Rejected']):
-        helper['build_plan'](recipe, [])
+        plan(helper, recipe)
 
 
-def test_plan_targets_only_the_lab_marker_directory(helper):
+def test_plans_target_only_lab_markers_and_the_session_directory(helper):
     for recipe_id in helper['RECIPES']:
-        plan, blockers = helper['build_plan'](recipe_id, [])
-        assert plan['target'] == '/var/lib/desktopforge-lab/markers' and blockers == []
-        assert {op['op'] for op in plan['operations']} <= {'create_file', 'fail'}
-        for op in plan['operations']:
+        result, blockers = plan(helper, recipe_id)
+        assert result['targets'] == {'markers': '/var/lib/desktopforge-lab/markers',
+                                     'sessions': '/usr/share/wayland-sessions'} and blockers == []
+        assert {op['op'] for op in result['operations']} <= {'create_file', 'register_session', 'fail'}
+        for op in result['operations']:
             if op['op'] == 'create_file':
-                assert '/' not in op['name'] and op['mode'] == 0o644
+                assert op['target'] == 'markers' and '/' not in op['name'] and op['mode'] == 0o644
+            if op['op'] == 'register_session':
+                assert op['target'] == 'sessions' and op['id'].startswith('desktopforge-')
 
 
 def test_existing_marker_blocks_preview_instead_of_overwriting(helper):
-    plan, blockers = helper['build_plan']('lab-synthetic-marker',
-                                          [{'name': 'desktopforge-lab-synthetic.marker'}])
+    _, blockers = plan(helper, 'lab-synthetic-marker',
+                       {'markers': [{'name': 'desktopforge-lab-synthetic.marker'}], 'sessions': []})
     assert blockers and 'will not be overwritten' in blockers[0]
 
 
+def test_session_file_collision_blocks(helper):
+    _, blockers = plan(helper, 'lab-session-gnome',
+                       {'markers': [], 'sessions': [{'name': 'desktopforge-lab-gnome.desktop'}]},
+                       {'desktopforge-lab-gnome.desktop': 'Something else'})
+    assert any('already exists' in b for b in blockers)
+
+
+@pytest.mark.parametrize('existing', ['DesktopForge Lab (GNOME)', 'desktopforge lab (gnome)'])
+def test_duplicate_display_name_blocks(helper, existing):
+    _, blockers = plan(helper, 'lab-session-gnome', EMPTY, {'gnome.desktop': existing})
+    assert blockers == ['A login session named "DesktopForge Lab (GNOME)" already exists']
+
+
+def test_unreadable_session_name_blocks_conservatively(helper):
+    _, blockers = plan(helper, 'lab-session-gnome', EMPTY, {'odd.desktop': None, 'gnome.desktop': 'GNOME'})
+    assert blockers == ['Cannot read the display name of: odd.desktop']
+
+
+def test_each_operation_class_has_its_own_polkit_action(helper):
+    assert helper['action_for']('lab-session-gnome') == 'org.desktopforge.lab.register-session'
+    assert helper['action_for']('lab-synthetic-marker') == 'org.desktopforge.lab.apply-synthetic'
+
+
+def test_session_recipe_renders_with_the_lab_allowlist(helper):
+    op = helper['RECIPES']['lab-session-gnome']['operations'][0]
+    assert sessions.render(op['entry'], helper['ALLOWED_COMMANDS']).startswith(b'[Desktop Entry]\nName=')
+    assert helper['ALLOWED_COMMANDS'] == frozenset({'/usr/bin/gnome-session'})
+
+
 def test_summary_states_every_operation(helper):
-    plan, _ = helper['build_plan']('lab-synthetic-fail', [])
-    summary = helper['summarize'](plan)
+    summary = helper['summarize'](plan(helper, 'lab-synthetic-fail')[0])
     assert summary[0].startswith('Create new file /var/lib/desktopforge-lab/markers/')
     assert summary[1].startswith('Injected failure')
+    (line,) = helper['summarize'](plan(helper, 'lab-session-gnome')[0])
+    assert '/usr/share/wayland-sessions/desktopforge-lab-gnome.desktop' in line
+    assert 'Existing sessions are not changed' in line
 
 
 def test_interface_inputs_are_only_recipe_id_token_and_plan_hash(helper):
@@ -53,9 +94,11 @@ def test_interface_inputs_are_only_recipe_id_token_and_plan_hash(helper):
     assert inputs == {'Preview': ['s'], 'Apply': ['s', 's']}
 
 
-def test_polkit_action_requires_admin_auth_in_active_session_only():
-    action = ET.parse(LAB / 'org.desktopforge.lab.apply-synthetic.policy').getroot().find('action')
-    assert action.get('id') == 'org.desktopforge.lab.apply-synthetic'
+@pytest.mark.parametrize('action_id', ['org.desktopforge.lab.apply-synthetic',
+                                       'org.desktopforge.lab.register-session'])
+def test_polkit_actions_require_admin_auth_in_active_session_only(action_id):
+    action = ET.parse(LAB / f'{action_id}.policy').getroot().find('action')
+    assert action.get('id') == action_id
     assert {c.tag: c.text for c in action.find('defaults')} == {
         'allow_any': 'no', 'allow_inactive': 'no', 'allow_active': 'auth_admin'}
 
@@ -70,14 +113,15 @@ def test_bus_policy_allows_only_preview_apply_and_introspect():
                        ('org.freedesktop.DBus.Introspectable', 'Introspect')}
 
 
-def test_unit_is_sandboxed_with_only_its_state_directory_writable():
+def test_unit_is_sandboxed_with_only_state_and_session_directories_writable():
     unit = configparser.ConfigParser(strict=False, interpolation=None)
     unit.optionxform = str
     unit.read(LAB / 'desktopforge-lab-helper.service')
     service = unit['Service']
     assert service['ExecStart'].startswith('/usr/bin/python3 -Is /usr/local/libexec/desktopforge-lab/')
     assert service['CapabilityBoundingSet'] == '' and service['ProtectSystem'] == 'strict'
-    assert service['StateDirectory'] == 'desktopforge-lab' and 'ReadWritePaths' not in service
+    assert service['StateDirectory'] == 'desktopforge-lab'
+    assert service['ReadWritePaths'] == '/usr/share/wayland-sessions'
     assert service['PrivateNetwork'] == 'yes'
 
 

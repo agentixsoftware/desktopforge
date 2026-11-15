@@ -20,7 +20,8 @@ GUEST_HOSTNAME = 'desktopforge-fedora45'
 REPO = Path(__file__).resolve().parents[2]
 LIBEXEC = '/usr/local/libexec/desktopforge-lab'
 CORE = '/usr/local/lib/desktopforge-lab/python/desktopforge_helper'
-CORE_FILES = ('__init__.py', 'evidence.py', 'executor.py', 'fsops.py', 'grants.py', 'journal.py')
+CORE_FILES = ('__init__.py', 'evidence.py', 'executor.py', 'fsops.py', 'grants.py', 'journal.py',
+              'sessions.py')
 
 
 def component_files(prefix, bus_name, action, unit):
@@ -45,6 +46,8 @@ COMPONENTS = {
         'unit': 'desktopforge-lab-helper.service',
         'files': {**component_files('helper', 'org.desktopforge.LabHelper1',
                                     'org.desktopforge.lab.apply-synthetic', 'desktopforge-lab-helper.service'),
+                  'lab/helper/org.desktopforge.lab.register-session.policy':
+                      ('/usr/share/polkit-1/actions/org.desktopforge.lab.register-session.policy', 0o644),
                   **{f'src/desktopforge/helper/{name}': (f'{CORE}/{name}', 0o644) for name in CORE_FILES}},
         'directories': ['/usr/local/lib/desktopforge-lab'],
     },

@@ -233,8 +233,8 @@ def test_evidence_sees_entries_created_after_handle_was_opened(any_fs_target):
 # ---- journal and executor ------------------------------------------------------
 
 PLAN = {'recipe': 'lab', 'revision': 1, 'operations': [
-    {'op': 'create_file', 'name': 'one.marker', 'mode': 0o644, 'content': 'one\n'},
-    {'op': 'create_file', 'name': 'two.marker', 'mode': 0o644, 'content': 'two\n'}]}
+    {'op': 'create_file', 'target': 'markers', 'name': 'one.marker', 'mode': 0o644, 'content': 'one\n'},
+    {'op': 'create_file', 'target': 'markers', 'name': 'two.marker', 'mode': 0o644, 'content': 'two\n'}]}
 
 
 def events(base, journal):
@@ -255,7 +255,7 @@ def test_successful_execution_is_journaled_in_order(target, journal_dir):
     base, fd = target
     jpath, jfd = journal_dir
     journal = Journal(jfd)
-    result = executor.execute(PLAN, journal, fd)
+    result = executor.execute(PLAN, journal, {'markers': fd})
     assert result['state'] == 'completed' and [c['name'] for c in result['created']] == ['one.marker', 'two.marker']
     names = [e['event'] for e in events(jpath, journal)]
     assert names == ['applying', 'operation_started', 'operation_succeeded',
@@ -268,7 +268,7 @@ def test_failure_after_partial_change_reports_manual_recovery_not_rollback(targe
     base, fd = target
     _, jfd = journal_dir
     plan = {**PLAN, 'operations': [PLAN['operations'][0], {'op': 'fail', 'reason': 'injected'}]}
-    result = executor.execute(plan, Journal(jfd), fd)
+    result = executor.execute(plan, Journal(jfd), {'markers': fd})
     assert result['state'] == 'failed_manual_recovery' and result['rolled_back'] is False
     assert result['failed_index'] == 1 and 'one.marker' in result['recovery']
     assert (base / 'one.marker').exists()
@@ -278,7 +278,7 @@ def test_conflict_on_first_operation_changes_nothing(target, journal_dir):
     base, fd = target
     _, jfd = journal_dir
     (base / 'one.marker').write_text('user data')
-    result = executor.execute(PLAN, Journal(jfd), fd)
+    result = executor.execute(PLAN, Journal(jfd), {'markers': fd})
     assert result['state'] == 'failed_recoverable' and result['created'] == []
     assert (base / 'one.marker').read_text() == 'user data' and not (base / 'two.marker').exists()
 
@@ -287,7 +287,7 @@ def test_unknown_operation_is_refused(target, journal_dir):
     _, fd = target
     _, jfd = journal_dir
     plan = {**PLAN, 'operations': [{'op': 'run_command', 'name': 'x'}]}
-    assert executor.execute(plan, Journal(jfd), fd)['state'] == 'failed_recoverable'
+    assert executor.execute(plan, Journal(jfd), {'markers': fd})['state'] == 'failed_recoverable'
 
 
 class FailingJournal:
@@ -302,14 +302,14 @@ class FailingJournal:
 
 def test_journal_failure_before_first_change_makes_no_change(target):
     base, fd = target
-    result = executor.execute(PLAN, FailingJournal(fail_at=2), fd)
+    result = executor.execute(PLAN, FailingJournal(fail_at=2), {'markers': fd})
     assert result['state'] == 'failed_recoverable' and result['journal_complete'] is False
     assert list(base.iterdir()) == []
 
 
 def test_journal_failure_mid_plan_stops_and_reports_created(target):
     base, fd = target
-    result = executor.execute(PLAN, FailingJournal(fail_at=4), fd)  # after op 1 succeeded
+    result = executor.execute(PLAN, FailingJournal(fail_at=4), {'markers': fd})  # after op 1 succeeded
     assert result['state'] == 'failed_manual_recovery'
     assert [c['name'] for c in result['created']] == ['one.marker']
     assert not (base / 'two.marker').exists()
@@ -346,3 +346,94 @@ def test_gui_and_cli_do_not_use_the_helper():
         assert 'helper' not in {
             n.module.split('.')[-1] if isinstance(n, ast.ImportFrom) and n.module else ''
             for n in ast.walk(ast.parse(path.read_text()))}, path
+
+
+# ---- login-session registration ---------------------------------------------------
+
+from desktopforge.helper import sessions  # noqa: E402
+
+GNOME = '/usr/bin/gnome-session'
+ENTRY = {'Name': 'DesktopForge Lab (GNOME)', 'Exec': GNOME, 'TryExec': GNOME,
+         'Type': 'Application', 'DesktopNames': 'GNOME'}
+
+
+def test_render_is_fixed_order_and_minimal():
+    assert sessions.render(ENTRY, {GNOME}).decode() == (
+        '[Desktop Entry]\nName=DesktopForge Lab (GNOME)\nExec=/usr/bin/gnome-session\n'
+        'TryExec=/usr/bin/gnome-session\nType=Application\nDesktopNames=GNOME\n')
+
+
+@pytest.mark.parametrize('change', [
+    {'Name': 'Evil\nExec=/bin/sh'},                 # newline injection
+    {'Name': 'x\x00y'}, {'Comment': 'a\\nb'},       # control / escape sequences
+    {'Name': ' padded'}, {'Name': 'x' * 201},
+    {'Exec': '/bin/sh -c id'}, {'Exec': 'gnome-session'}, {'Exec': '/usr/bin/../bin/sh'},
+    {'Exec': '/usr/bin/gnome-session %U'}, {'TryExec': '/usr/bin/other'},
+    {'Type': 'Link'}, {'X-GNOME-Autostart': 'true'}, {'Hidden': 'false'},
+])
+def test_render_rejects_injection_and_unlisted_commands(change):
+    with pytest.raises(sessions.InvalidEntry):
+        sessions.render({**ENTRY, **change}, {GNOME, '/bin/sh'} - {'/bin/sh'})
+
+
+def test_render_requires_name_exec_type():
+    with pytest.raises(sessions.InvalidEntry):
+        sessions.render({'Name': 'x', 'Type': 'Application'}, {GNOME})
+
+
+@pytest.mark.parametrize('session_id', ['gnome', 'desktopforge-', 'desktopforge-Lab', 'desktopforge-a/b',
+                                        'desktopforge-../x', 'desktopforge--x', 'x-desktopforge-a'])
+def test_session_ids_stay_in_namespace(session_id):
+    with pytest.raises(sessions.InvalidEntry):
+        sessions.session_filename(session_id)
+
+
+def test_register_session_creates_entry_and_never_replaces(target, journal_dir):
+    base, fd = target
+    _, jfd = journal_dir
+    plan = {'recipe': 'lab', 'revision': 1, 'operations': [
+        {'op': 'register_session', 'target': 'sessions', 'id': 'desktopforge-lab-gnome', 'entry': ENTRY}]}
+    result = executor.execute(plan, Journal(jfd), {'sessions': fd}, allowed_commands={GNOME})
+    assert result['state'] == 'completed'
+    assert (base / 'desktopforge-lab-gnome.desktop').read_text().startswith('[Desktop Entry]\nName=DesktopForge')
+    again = executor.execute(plan, Journal(jfd), {'sessions': fd}, allowed_commands={GNOME})
+    assert again['state'] == 'failed_recoverable' and 'already exists' in again['error']
+
+
+def test_register_session_without_allowlist_changes_nothing(target, journal_dir):
+    base, fd = target
+    _, jfd = journal_dir
+    plan = {'recipe': 'lab', 'revision': 1, 'operations': [
+        {'op': 'register_session', 'target': 'sessions', 'id': 'desktopforge-lab-gnome', 'entry': ENTRY}]}
+    assert executor.execute(plan, Journal(jfd), {'sessions': fd})['state'] == 'failed_recoverable'
+    assert list(base.iterdir()) == []
+
+
+def test_operation_cannot_name_an_unknown_target(target, journal_dir):
+    _, fd = target
+    _, jfd = journal_dir
+    plan = {'recipe': 'lab', 'revision': 1, 'operations': [
+        {'op': 'create_file', 'target': 'etc', 'name': 'x', 'mode': 0o644, 'content': ''}]}
+    assert executor.execute(plan, Journal(jfd), {'markers': fd})['error'] == 'unknown operation target'
+
+
+def test_display_names_reads_regular_entries_only(target, tmp_path):
+    base, fd = target
+    (base / 'gnome.desktop').write_text('[Desktop Entry]\nName = GNOME \nExec=gnome-session\n')
+    (base / 'other.desktop').write_text('[Other]\nName=Hidden\n[Desktop Entry]\nName[de]=Lokal\nExec=x\n')
+    secret = tmp_path / 'secret'
+    secret.write_text('[Desktop Entry]\nName=Leaked\n')
+    (base / 'link.desktop').symlink_to(secret)
+    (base / 'notes.txt').write_text('Name=ignored')
+    names = sessions.display_names(fd, evidence.directory_evidence(fd))
+    assert names == {'gnome.desktop': 'GNOME', 'link.desktop': None, 'other.desktop': None}
+
+
+def test_read_small_is_bounded_and_refuses_symlinks(target, tmp_path):
+    base, fd = target
+    (base / 'big').write_bytes(b'x' * 11)
+    with pytest.raises(fsops.UnsafePath):
+        fsops.read_small(fd, 'big', limit=10)
+    (base / 'link').symlink_to(tmp_path)
+    with pytest.raises(OSError):
+        fsops.read_small(fd, 'link')

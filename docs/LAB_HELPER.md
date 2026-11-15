@@ -1,9 +1,10 @@
-# VM-lab helper: preview, approve, apply (synthetic recipes only)
+# VM-lab helper: preview, approve, apply (built-in lab recipes only)
 
-Status: **lab experiment, disposable VM only.** The only change this service can
-make is creating marker files in `/var/lib/desktopforge-lab/markers`. It is not
-the production helper, it cannot run real recipes, and DesktopForge installation
-remains disabled. Follows the [helper protocol proposal](HELPER_PROTOCOL.md) and
+Status: **lab experiment, disposable VM only.** The only changes this service can
+make are creating marker files in `/var/lib/desktopforge-lab/markers` and
+registering `desktopforge-*` login sessions in `/usr/share/wayland-sessions`. It
+is not the production helper, it cannot run real recipes, and DesktopForge
+installation remains disabled. Follows the [helper protocol proposal](HELPER_PROTOCOL.md) and
 builds on the [authorization probe](LAB_AUTHPROBE.md).
 
 ## Layers
@@ -18,7 +19,8 @@ Nothing in the GUI or CLI imports it (tests enforce both).
 | `evidence.py` | Non-following records (type, mode, owner, hash, symlink target) of a directory; canonical-JSON SHA-256 fingerprint |
 | `grants.py` | One-time grants bound to caller connection + UID, recipe revision, plan hash and evidence fingerprint; expiry; consumed before any check; global and per-UID bounds; dropped when the caller disconnects |
 | `journal.py` | Per-install `O_EXCL` JSON-lines journal (0600), fsync per entry; a write failure stops execution |
-| `executor.py` | Typed operations only (`create_file`, test-only `fail`); journal before each step; verification by re-hash; `failed_recoverable` vs `failed_manual_recovery`; never reports a rollback |
+| `sessions.py` | Strict `[Desktop Entry]` rendering from fixed values (`desktopforge-*` IDs, allowlisted absolute commands, no field codes, no control/escape characters, fixed key set); spec-conformant `Name` reading of existing entries |
+| `executor.py` | Typed operations only (`create_file`, `register_session`, test-only `fail`) against named directory handles; journal before each step; verification by re-hash; `failed_recoverable` vs `failed_manual_recovery`; never reports a rollback |
 
 **Lab service** — `lab/helper/`: `org.desktopforge.LabHelper1` on the system bus.
 
@@ -33,10 +35,16 @@ Nothing in the GUI or CLI imports it (tests enforce both).
   After authorization it recomputes evidence and plan, and anything changed
   means rejection. Then it journals `approved` → `preflight_passed` → execution.
   Only one apply runs at a time.
-- Recipes: `lab-synthetic-marker` (create one file) and `lab-synthetic-fail`
-  (create one file, then injected failure).
+- Recipes: `lab-synthetic-marker` (create one file), `lab-synthetic-fail`
+  (create one file, then injected failure) and `lab-session-gnome` (register
+  "DesktopForge Lab (GNOME)", which starts the stock `/usr/bin/gnome-session`).
+- Each operation class has its own Polkit action:
+  `org.desktopforge.lab.apply-synthetic` and `org.desktopforge.lab.register-session`.
+- Session preflight blocks on an existing file, an existing session with the same
+  display name (case-insensitive), or any session entry whose name it cannot read.
 - Unit: root UID with an empty capability set, `ProtectSystem=strict`, private
-  network, and only `StateDirectory=desktopforge-lab` writable. It imports the
+  network; writable paths are only `StateDirectory=desktopforge-lab` and
+  `/usr/share/wayland-sessions`. It imports the
   core only from `/usr/local/lib/desktopforge-lab/python`.
 
 `lab/helper/desktopforge-lab-client` is the unprivileged test client. It keeps
@@ -82,11 +90,32 @@ A first run of the drift case was invalid. The test removed the drift before
 the post-approval recheck, so applying was correct. The rerun keeps the drift
 until the outcome arrives.
 
+## Session registration results (2026-11-14, GDM 51.1.1, GNOME Shell 51.1)
+
+| Step | Result |
+| --- | --- |
+| Preview | Plan names the exact file and command; `register-session` authorization; no blockers |
+| Polkit dialog | Operation-specific message ("add a new DesktopForge lab login session…") |
+| Apply | `completed`; 7-entry journal; file root:root 0644, SELinux `usr_t`, exactly the template |
+| Preservation record diff | Only change: the new session file (other recorded paths, OS and package data identical) |
+| DesktopForge inventory | Lists "DesktopForge Lab (GNOME)" beside GNOME and GNOME Classic |
+| GDM Session Type menu | New entry listed; existing entries unchanged |
+| Log in through new entry | Active Wayland session, `GDMSESSION=desktopforge-lab-gnome` |
+| Log out, log in to original GNOME | Works; `GDMSESSION=gnome` |
+| Repeat registration | Preview blocked: file exists and display name exists; no token, no dialog |
+
+Finding: choosing a session at GDM updates the user's remembered default in
+AccountsService (`Session` property). After using the added session, it becomes
+the default for the next login until the user picks another. That is display
+manager behavior, not a DesktopForge write, but recovery guidance for a broken
+added session must account for it. What GDM does when the remembered session
+file has disappeared has not yet been tested.
+
 ## Not yet covered
 
 The helper has not yet been tested for caller disconnect during an apply
 dialog; the probe has. Also not tested: locked/inactive sessions, two users,
-concurrent applies from separate users, journal-disk-full in the guest, path
+concurrent applies from separate users, a remembered default session whose file was removed, session removal (a v0.1 non-goal, needs ownership records), journal-disk-full in the guest, path
 replacement races in the guest (unit-tested only), reboot during apply, and
 SDDM. Real recipe operations (package transactions, session registration) need
 their own operation classes and reviews before any of this approaches production.

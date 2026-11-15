@@ -1,9 +1,10 @@
 #!/usr/bin/python3 -Is
-"""DesktopForge VM-lab helper: preview/approve/apply for synthetic recipes only.
+"""DesktopForge VM-lab helper: preview/approve/apply for built-in lab recipes only.
 
 Exercises the helper core (grants, evidence, journal, handle-based writes) behind
-the system bus and Polkit, inside the disposable VM. Its only possible change is
-creating marker files in /var/lib/desktopforge-lab/markers. It accepts a recipe
+the system bus and Polkit, inside the disposable VM. Its only possible changes are
+creating marker files in /var/lib/desktopforge-lab/markers and registering
+desktopforge-* login sessions in /usr/share/wayland-sessions. It accepts a recipe
 ID from a fixed built-in list, never recipe content, commands, paths or modes.
 It is not the production helper and does not enable DesktopForge installation.
 """
@@ -17,6 +18,8 @@ BUS_NAME = 'org.desktopforge.LabHelper1'
 OBJECT_PATH = '/org/desktopforge/LabHelper1'
 INTERFACE = BUS_NAME
 ACTION_ID = 'org.desktopforge.lab.apply-synthetic'
+SESSION_ACTION_ID = 'org.desktopforge.lab.register-session'
+ALLOWED_COMMANDS = frozenset({'/usr/bin/gnome-session'})
 CORE_PATH = '/usr/local/lib/desktopforge-lab/python'
 STATE_DIR = '/var/lib/desktopforge-lab'
 SESSIONS_DIR = '/usr/share/wayland-sessions'
@@ -29,13 +32,20 @@ GRANT_TTL_SECONDS = 120
 
 RECIPES = {
     'lab-synthetic-marker': {'revision': 1, 'operations': [
-        {'op': 'create_file', 'name': 'desktopforge-lab-synthetic.marker', 'mode': 0o644,
+        {'op': 'create_file', 'target': 'markers', 'name': 'desktopforge-lab-synthetic.marker', 'mode': 0o644,
          'content': 'DesktopForge lab synthetic marker. Safe to delete.\n'}]},
     'lab-synthetic-fail': {'revision': 1, 'operations': [
-        {'op': 'create_file', 'name': 'desktopforge-lab-partial.marker', 'mode': 0o644,
+        {'op': 'create_file', 'target': 'markers', 'name': 'desktopforge-lab-partial.marker', 'mode': 0o644,
          'content': 'Left behind by an injected lab failure. Safe to delete.\n'},
         {'op': 'fail', 'reason': 'injected failure after the first operation'}]},
+    'lab-session-gnome': {'revision': 1, 'operations': [
+        {'op': 'register_session', 'target': 'sessions', 'id': 'desktopforge-lab-gnome', 'entry': {
+            'Name': 'DesktopForge Lab (GNOME)',
+            'Comment': 'DesktopForge lab test session; starts the standard GNOME session',
+            'Exec': '/usr/bin/gnome-session', 'TryExec': '/usr/bin/gnome-session',
+            'Type': 'Application', 'DesktopNames': 'GNOME'}}]},
 }
+TARGETS = {'markers': TARGET, 'sessions': SESSIONS_DIR}
 
 INTROSPECTION = f"""<node>
   <interface name="{INTERFACE}">
@@ -56,16 +66,39 @@ class Rejected(Exception):
     pass
 
 
-def build_plan(recipe_id, marker_evidence):
-    """Plan for a built-in recipe, or blockers. Content comes only from RECIPES."""
+def action_for(recipe_id):
+    """Each sensitive operation class has its own Polkit action."""
+    ops = {op['op'] for op in RECIPES[recipe_id]['operations']}
+    return SESSION_ACTION_ID if 'register_session' in ops else ACTION_ID
+
+
+def build_plan(recipe_id, current, session_names, render, session_filename):
+    """Plan for a built-in recipe, or blockers. Content comes only from RECIPES.
+
+    current: {'markers': [...], 'sessions': [...]} evidence records.
+    session_names: existing session file -> display Name (None if unreadable).
+    """
     if not isinstance(recipe_id, str) or not RECIPE_ID.fullmatch(recipe_id) or recipe_id not in RECIPES:
         raise Rejected('unknown recipe')
     recipe = RECIPES[recipe_id]
-    existing = {record['name'] for record in marker_evidence}
-    blockers = [f'{op["name"]} already exists; it will not be overwritten'
-                for op in recipe['operations'] if op['op'] == 'create_file' and op['name'] in existing]
+    existing = {target: {r['name'] for r in current[target]} for target in TARGETS}
+    taken = {name.casefold() for name in session_names.values() if name}
+    blockers = []
+    for op in recipe['operations']:
+        if op['op'] == 'create_file' and op['name'] in existing[op['target']]:
+            blockers.append(f'{op["name"]} already exists; it will not be overwritten')
+        elif op['op'] == 'register_session':
+            render(op['entry'], ALLOWED_COMMANDS)  # invalid templates fail at preview
+            filename = session_filename(op['id'])
+            if filename in existing['sessions']:
+                blockers.append(f'Session file {filename} already exists; it will not be overwritten')
+            if op['entry']['Name'].casefold() in taken:
+                blockers.append(f'A login session named "{op["entry"]["Name"]}" already exists')
+            unknown = sorted(f for f, n in session_names.items() if n is None)
+            if unknown:
+                blockers.append('Cannot read the display name of: ' + ', '.join(unknown))
     plan = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': recipe['revision'],
-            'target': TARGET, 'operations': recipe['operations']}
+            'targets': TARGETS, 'operations': recipe['operations']}
     return plan, blockers
 
 
@@ -74,7 +107,11 @@ def summarize(plan):
     lines = []
     for op in plan['operations']:
         if op['op'] == 'create_file':
-            lines.append(f'Create new file {plan["target"]}/{op["name"]} (mode {op["mode"]:04o})')
+            lines.append(f'Create new file {plan["targets"][op["target"]]}/{op["name"]} (mode {op["mode"]:04o})')
+        elif op['op'] == 'register_session':
+            entry = op['entry']
+            lines.append(f'Add login session "{entry["Name"]}" as {plan["targets"]["sessions"]}/'
+                         f'{op["id"]}.desktop; it starts {entry["Exec"]}. Existing sessions are not changed.')
         elif op['op'] == 'fail':
             lines.append(f'Injected failure: {op["reason"]}')
     return lines
@@ -82,7 +119,7 @@ def summarize(plan):
 
 def run_service():  # pragma: no cover - exercised in the disposable VM
     sys.path.insert(0, CORE_PATH)
-    from desktopforge_helper import evidence, executor, fsops
+    from desktopforge_helper import evidence, executor, fsops, sessions
     from desktopforge_helper.grants import Caller, GrantRejected, GrantStore
     from desktopforge_helper.journal import Journal, JournalError
     from gi.repository import Gio, GLib
@@ -128,13 +165,16 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
         invocation.return_dbus_error(INTERFACE + '.Error.Rejected', reason)
         touch()
 
-    def current_evidence():
-        sessions_fd = fsops.open_anchor(SESSIONS_DIR, expected_uid=0)
-        try:
-            return {'sessions': evidence.directory_evidence(sessions_fd),
-                    'markers': evidence.directory_evidence(markers_fd)}
-        finally:
-            os.close(sessions_fd)
+    def inspect(sessions_fd):
+        """Fresh evidence and plan inputs, read through the given session-dir handle."""
+        current = {'sessions': evidence.directory_evidence(sessions_fd),
+                   'markers': evidence.directory_evidence(markers_fd)}
+        return current, sessions.display_names(sessions_fd, current['sessions'])
+
+    def plan_for(recipe_id, sessions_fd):
+        current, names = inspect(sessions_fd)
+        plan, blockers = build_plan(recipe_id, current, names, sessions.render, sessions.session_filename)
+        return current, plan, blockers
 
     def watch_sender(sender):
         if sender in state['watches']:
@@ -166,12 +206,16 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
 
     def preview(invocation, caller, recipe_id):
         try:
-            current = current_evidence()
-            plan, blockers = build_plan(recipe_id, current['markers'])
-        except (Rejected, fsops.UnsafePath, OSError) as exc:
+            sessions_fd = fsops.open_anchor(SESSIONS_DIR, expected_uid=0)
+            try:
+                current, plan, blockers = plan_for(recipe_id, sessions_fd)
+            finally:
+                os.close(sessions_fd)
+        except (Rejected, fsops.UnsafePath, sessions.InvalidEntry, OSError) as exc:
             reject(invocation, caller.sender, str(exc))
             return
         record = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': plan['revision'],
+                  'authorization': action_for(recipe_id),
                   'plan_hash': executor.plan_hash(plan), 'summary': summarize(plan),
                   'blockers': blockers, 'changes_made': False}
         if blockers:
@@ -201,6 +245,7 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
         state['applying'] = True
         log(f'apply sender={caller.sender} uid={caller.uid} recipe={grant.recipe_id}: authorizing')
         cancel_id = 'dflab-' + token[:32]
+        action = action_for(grant.recipe_id)
 
         def vanished(*_args):
             bus.call('org.freedesktop.PolicyKit1', '/org/freedesktop/PolicyKit1/Authority',
@@ -232,9 +277,19 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                 return
             # Fresh preflight after authorization: anything changed -> no changes.
             try:
-                current = current_evidence()
-                plan, blockers = build_plan(grant.recipe_id, current['markers'])
-            except (Rejected, fsops.UnsafePath, OSError) as exc:
+                sessions_fd = fsops.open_anchor(SESSIONS_DIR, expected_uid=0)
+            except (fsops.UnsafePath, OSError) as exc:
+                finish({'outcome': 'rejected', 'detail': f'preflight failed: {exc}', 'changes_made': False})
+                return
+            try:
+                apply_checked(sessions_fd)
+            finally:
+                os.close(sessions_fd)
+
+        def apply_checked(sessions_fd):
+            try:
+                current, plan, blockers = plan_for(grant.recipe_id, sessions_fd)
+            except (Rejected, fsops.UnsafePath, sessions.InvalidEntry, OSError) as exc:
                 finish({'outcome': 'rejected', 'detail': f'preflight failed: {exc}', 'changes_made': False})
                 return
             if evidence.fingerprint(current) != grant.fingerprint or blockers \
@@ -248,23 +303,24 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                 finish({'outcome': 'rejected', 'detail': str(exc), 'changes_made': False})
                 return
             try:
-                journal.record('approved', uid=caller.uid, sender=caller.sender, action=ACTION_ID,
+                journal.record('approved', uid=caller.uid, sender=caller.sender, action=action,
                                recipe=grant.recipe_id, plan_hash=grant.plan_hash)
                 journal.record('preflight_passed', fingerprint=grant.fingerprint)
-                result = executor.execute(plan, journal, markers_fd)
+                result = executor.execute(plan, journal, {'markers': markers_fd, 'sessions': sessions_fd},
+                                          ALLOWED_COMMANDS)
             except JournalError as exc:
                 result = {'state': 'failed_recoverable', 'created': [], 'error': str(exc)}
             finally:
                 journal.close()
             finish({'outcome': result['state'], 'install_id': journal.install_id,
-                    'created': [f'{TARGET}/{c["name"]}' for c in result['created']],
+                    'created': [f'{TARGETS[c["target"]]}/{c["name"]}' for c in result['created']],
                     'recovery': result.get('recovery') or '', 'error': result.get('error', ''),
                     'rolled_back': False, 'changes_made': bool(result['created'])})
 
         subject = ('system-bus-name', {'name': GLib.Variant('s', caller.sender)})
         bus.call('org.freedesktop.PolicyKit1', '/org/freedesktop/PolicyKit1/Authority',
                  'org.freedesktop.PolicyKit1.Authority', 'CheckAuthorization',
-                 GLib.Variant('((sa{sv})sa{ss}us)', (subject, ACTION_ID, {}, 1, cancel_id)),
+                 GLib.Variant('((sa{sv})sa{ss}us)', (subject, action, {}, 1, cancel_id)),
                  GLib.VariantType('((bba{ss}))'), Gio.DBusCallFlags.NONE, POLKIT_TIMEOUT_MS,
                  None, authorized)
 
@@ -283,7 +339,7 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
     Gio.bus_own_name_on_connection(bus, BUS_NAME, Gio.BusNameOwnerFlags.DO_NOT_QUEUE,
                                    None, lambda *_a: loop.quit())
     touch()
-    log(f'lab helper ready (protocol {PROTOCOL_VERSION}); synthetic recipes only')
+    log(f'lab helper ready (protocol {PROTOCOL_VERSION}); built-in lab recipes only')
     loop.run()
     return 0
 

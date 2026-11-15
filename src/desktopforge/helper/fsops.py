@@ -132,3 +132,17 @@ def hash_file(dir_fd, name):
         return digest.hexdigest()
     finally:
         os.close(fd)
+
+
+def read_small(dir_fd, name, limit=64 * 1024):
+    """Read a regular file beneath a handle without following symlinks; bounded."""
+    fd = os.open(check_name(name), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise UnsafePath(f'{name} is not a regular file')
+        data = os.read(fd, limit + 1)
+    finally:
+        os.close(fd)
+    if len(data) > limit:
+        raise UnsafePath(f'{name} is larger than {limit} bytes')
+    return data
