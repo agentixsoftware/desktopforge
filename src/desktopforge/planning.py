@@ -108,7 +108,7 @@ def build_plan(inventory: dict, compositor: str, shell: str,
                          if p["status"] == "unknown"]
             blockers.insert(0, f"DesktopForge installation {installed['install_id']} of this combination is "
                                f"{installed['status']}: " + "; ".join(problems or ["see its install record"])
-                               + ". Repair is not supported yet; the lab helper can remove it (docs/REMOVAL.md).")
+                               + ". In VM lab mode it can be repaired or removed (docs/REPAIR.md, docs/REMOVAL.md).")
             operations, session_configuration = [], None
     return {
         "schema_version": 2,

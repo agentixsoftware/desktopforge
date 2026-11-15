@@ -138,7 +138,8 @@ Bugs found and fixed through VM runs:
      lab helper (`docs/GUI.md`). Production installation stays disabled.
    - DNF network limits are done (`retries=2`, `timeout=20`), and helper `Progress` signals are shown in the GUI and CLI.
    - SDDM baseline VM is done (`docs/SDDM_VM.md`; profile `sddm`, backup `sddm-pre-niri-2026-11-15`).
-   - Repair.
+   - Repair is done (`docs/REPAIR.md`): GUI and helper, VM-verified.
+   - Next: production-path decisions with the user (privileged packaging, approved-recipe policy, enabling outside the lab).
 3. **Product decisions already made:**
    - **Option A:** never reset the AccountsService remembered session; report
      failed logins instead.
