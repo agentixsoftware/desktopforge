@@ -46,7 +46,7 @@ QListWidget, QPlainTextEdit, QTextBrowser, QTableWidget { background: #131b27;
 QTableWidget { gridline-color: #2b374a; }
 QHeaderView::section { background: #202c3d; color: #aebed4; border: none; padding: 9px; }
 QTabWidget::pane { border: none; }
-QTabBar::tab { background: transparent; color: #aab8cc; padding: 10px 15px; border-bottom: 2px solid transparent; }
+QTabBar::tab { background: transparent; color: #aab8cc; padding: 10px 8px; border-bottom: 2px solid transparent; }
 QTabBar::tab:selected { color: #91dccd; border-bottom: 2px solid #91dccd; }
 QStatusBar { background: #151c28; color: #9daec5; }
 QProgressBar { border: 1px solid #3a5063; border-radius: 3px; max-height: 5px; }

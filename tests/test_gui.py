@@ -319,3 +319,14 @@ def test_packages_tab_explains_recipe_roles_and_static_repository_flags(window, 
     assert 'fedora · enabled: on, gpgcheck: unspecified' in text
     assert 'Installed-package origin remains unknown.' in text
     assert not window.install_button.isEnabled()
+
+
+def test_all_plan_tabs_are_visible_at_minimum_window_width(window, app):
+    window.resize(880, 720)
+    scan(window)
+    app.processEvents()
+    bar = window.tabs.tabBar()
+    assert window.tabs.count() == 5
+    assert window.tabs.tabText(4) == 'Packages'
+    for index in range(window.tabs.count()):
+        assert bar.rect().contains(bar.tabRect(index)), window.tabs.tabText(index)
