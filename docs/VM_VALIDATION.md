@@ -60,3 +60,7 @@ graphical observations and verification results to each case. A passing unit tes
 or nested compositor trial is insufficient evidence for a login-session install.
 Repository provenance, key trust and effective package policy must be checked in
 the guest; the GUI's static repository declarations alone do not settle them.
+
+A local software-emulated lab now provides guest-only SSH administration and QMP
+console control. See [VM lab controls and scope](VM_LAB.md). Boot and SSH access
+are verified; this does not establish graphical installation or preservation results.

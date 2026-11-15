@@ -33,3 +33,6 @@ htmlcov/
 
 # Optional project-local GUI dependencies
 .venv-gui/
+
+# Disposable VM disks, guest credentials and local validation artifacts
+.desktopforge-vm/

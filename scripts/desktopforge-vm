@@ -1,0 +1,104 @@
+#!/usr/bin/python3
+"""Control the prepared, disposable local VM; never install host packages."""
+import argparse
+import functools
+import http.server
+import json
+import os
+from pathlib import Path
+import socket
+import stat
+import subprocess
+import threading
+
+ROOT = Path(__file__).resolve().parents[1] / '.desktopforge-vm'
+
+
+def qmp(command, arguments=None):
+    path = ROOT / 'run/qmp.sock'
+    info = path.lstat()
+    if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+        raise RuntimeError('VM control socket is not owned by this account')
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(10)
+        client.connect(str(path))
+        with client.makefile('rwb', buffering=0) as stream:
+            json.loads(stream.readline())
+            for name, args in [('qmp_capabilities', None), (command, arguments)]:
+                request = {'execute': name}
+                if args is not None:
+                    request['arguments'] = args
+                stream.write((json.dumps(request) + '\n').encode())
+                while True:
+                    result = json.loads(stream.readline())
+                    if 'event' not in result:
+                        break
+                if 'error' in result:
+                    raise RuntimeError(str(result['error']))
+            return result['return']
+
+
+def start():
+    for relative in ('run/guest.qcow2', 'keys/id_ed25519', 'seed/user-data', 'seed/meta-data', 'run/image-verification.json'):
+        if not (ROOT / relative).is_file():
+            raise RuntimeError('VM has not been prepared: missing ' + relative)
+    path = ROOT / 'run/qmp.sock'
+    if path.exists():
+        try:
+            qmp('query-status')
+        except ConnectionRefusedError:
+            path.unlink()
+        else:
+            raise RuntimeError('VM is already running')
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(ROOT / 'seed'))
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    args = ['qemu-system-x86_64', '-name', 'desktopforge-fedora45', '-machine', 'q35,accel=tcg',
+            '-cpu', 'max', '-smp', '2', '-m', '4096',
+            '-drive', f'file={ROOT}/run/guest.qcow2,format=qcow2,if=virtio',
+            '-netdev', 'user,id=network0,hostfwd=tcp:127.0.0.1:22220-:22',
+            '-device', 'virtio-net-pci,netdev=network0', '-device', 'virtio-vga',
+            '-device', 'virtio-rng-pci', '-display', 'none', '-serial', f'file:{ROOT}/run/serial.log',
+            '-qmp', f'unix:{path},server=on,wait=off',
+            '-smbios', f'type=1,serial=ds=nocloud;s=http://10.0.2.2:{port}/', '-no-reboot']
+    try:
+        with (ROOT / 'run/qemu.log').open('ab') as log:
+            print('Starting disposable guest; SSH on 127.0.0.1:22220', flush=True)
+            return subprocess.call(args, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+    finally:
+        server.shutdown()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=('start', 'status', 'ssh', 'screenshot', 'stop'))
+    parser.add_argument('command', nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    if not ROOT.is_dir() or ROOT.is_symlink() or ROOT.stat().st_uid != os.getuid():
+        parser.error('Private VM state directory is missing or not owned by this account')
+    if args.action == 'start':
+        return start()
+    if args.action == 'ssh':
+        return subprocess.call(['ssh', '-F', '/dev/null', '-i', str(ROOT / 'keys/id_ed25519'),
+            '-p', '22220', '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
+            '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=accept-new',
+            '-o', f'UserKnownHostsFile={ROOT}/keys/known_hosts', 'dfvm@127.0.0.1', *args.command])
+    if args.action == 'status':
+        print(json.dumps(qmp('query-status'), indent=2))
+    elif args.action == 'stop':
+        # Graceful guest shutdown. No PID-based kill and no forced disk teardown.
+        qmp('system_powerdown')
+        print('Requested graceful guest shutdown.')
+    elif args.action == 'screenshot':
+        destination = ROOT / 'run/screen.ppm'
+        qmp('screendump', {'filename': str(destination)})
+        print(destination)
+    return 0
+
+
+if __name__ == '__main__':
+    try:
+        raise SystemExit(main())
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SystemExit(str(exc))

@@ -123,3 +123,5 @@ in the checkout's ignored `.desktopforge-reports/` directory, allowing a
 same-account diagnostic handoff through the existing shared project folder.
 
 The GUI Packages tab now shows local Fedora RPM versions and unverified reuse candidates. Package-query failures remain unknown; repository trust, compatibility and installation remain unvalidated. See [GUI package evidence](docs/GUI.md#installed-package-evidence).
+
+A [disposable VM lab](docs/VM_LAB.md) is being prepared for installation validation. Its guest administration is separate from the installed host desktop.
