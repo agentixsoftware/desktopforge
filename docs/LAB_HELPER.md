@@ -220,6 +220,17 @@ Lab note: a blind password entry went into a terminal (echoed on screen, in no
 file) because a wait loop's `pgrep -f` matched its own command line. Waits now
 use the helper's journal.
 
+## Install records in the guest (2026-11-15)
+
+See [install records](INSTALL_RECORDS.md). The pre-records revision-2 session
+was removed as a logged lab-admin action and re-applied. Its record lists niri
+and noctalia as **reused**: they were already present, although an earlier lab
+run had installed them before records existed. CLI `plan` then reported
+`installed` (exit 0), the GUI showed "Installed by DesktopForge", and the helper
+blocked a re-apply. Appending a line to the config gave `modified` (blocked,
+naming the file); moving the session entry away gave `incomplete`; restoring
+both gave `intact` again.
+
 ## Not yet covered
 
 The helper has not yet been tested for caller disconnect during an apply

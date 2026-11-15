@@ -46,6 +46,8 @@ def emit(step, record):
         print(f'  - {line}')
     for item in record.get('created', []):
         print(f'  + {item}')
+    if record.get('record'):
+        print(f'  Install record: {record["record"]}')
     if record.get('recovery'):
         print(f'  Recovery: {record["recovery"]}')
     if record.get('error'):

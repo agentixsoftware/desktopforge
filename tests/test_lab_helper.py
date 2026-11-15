@@ -132,7 +132,7 @@ def test_unit_is_sandboxed_with_only_state_and_session_directories_writable():
     service = unit['Service']
     assert service['ExecStart'].startswith('/usr/bin/python3 -Is /usr/local/libexec/desktopforge-lab/')
     assert service['CapabilityBoundingSet'] == '' and service['ProtectSystem'] == 'strict'
-    assert service['StateDirectory'] == 'desktopforge-lab'
+    assert service['StateDirectory'] == 'desktopforge-lab desktopforge/installs'
     assert service['ReadWritePaths'] == '/usr/share/wayland-sessions'
     assert service['ConfigurationDirectory'] == 'desktopforge'
     assert service['PrivateNetwork'] == 'yes'
@@ -247,3 +247,35 @@ def test_summary_when_every_package_is_already_installed(helper):
     summary = helper['summarize'](result)
     assert summary[0] == 'No packages need to be installed.'
     assert summary[1] == 'Already installed and reused unchanged: niri, noctalia'
+
+
+def test_install_record_built_from_a_completed_result(helper):
+    from desktopforge.helper import records
+    result_plan, _ = plan(helper, 'fedora45-niri-noctalia-lab')
+    result = {'state': 'completed', 'created': [
+        {'kind': 'packages', 'packages': [{'name': 'niri', 'arch': 'x86_64', 'evr': '0:26.04-2.fc45',
+                                           'repo': 'fedora', 'installtid': '1794800000', 'key_id': '655a4b02f577861e'}]},
+        {'kind': 'file', 'target': 'session-config', 'name': 'niri-noctalia.kdl', 'sha256': 'a' * 64},
+        {'kind': 'file', 'target': 'sessions', 'name': 'desktopforge-niri-noctalia.desktop', 'sha256': 'b' * 64}]}
+    record = helper['install_record'](records, dict(result_plan, plan_hash='c' * 64), result, 'd' * 32, 1000,
+                                      'org.desktopforge.lab.install-session', '2026-11-15T08:40:00Z')
+    assert record['target'] == {'compositor': 'niri', 'shell': 'noctalia'}
+    assert record['session'] == {'id': 'desktopforge-niri-noctalia', 'name': 'Niri + Noctalia (DesktopForge)'}
+    assert [f['role'] for f in record['files']] == ['session-config', 'session-entry']
+    assert record['packages']['reused'] == ['noctalia'] and record['packages']['installed'][0]['name'] == 'niri'
+
+
+def test_lab_only_recipes_produce_no_install_record(helper):
+    from desktopforge.helper import records
+    result_plan, _ = plan(helper, 'lab-session-gnome')
+    assert helper['install_record'](records, dict(result_plan, plan_hash='c' * 64),
+                                    {'state': 'completed', 'created': []}, 'd' * 32, 1000, 'x', 'y') is None
+
+
+def test_recorded_installation_blocks_reapply(helper):
+    installed = [{'recipe': {'id': 'fedora45-niri-noctalia-lab', 'revision': 2}, 'state': 'completed',
+                  'install_id': 'e' * 32, 'recorded_at': '2026-11-15T08:40:00Z'}]
+    _, blockers = helper['build_plan']('fedora45-niri-noctalia-lab', EMPTY, {}, sessions.render,
+                                       sessions.session_filename, resolve=lambda p, r: ([], []),
+                                       templates=TEMPLATES, installed=installed)
+    assert blockers == [f'Already installed by DesktopForge (install {"e" * 32}, 2026-11-15T08:40:00Z); nothing to do.']

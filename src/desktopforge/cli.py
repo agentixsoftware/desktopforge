@@ -41,8 +41,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2, sort_keys=True))
         else:
             print(f"Read-only preview: {args.compositor} + {args.shell}")
-            print(f"Compatibility: {result['compatibility']}; plan: blocked")
+            print(f"Compatibility: {result['compatibility']}; plan: {result['status']}")
             print(f"Session ID preview: {result['session_id_preview']}")
+            existing = result.get("existing_installation")
+            if existing:
+                print(f"Installed by DesktopForge: {existing['session']['name']} "
+                      f"(install {existing['install_id']}, {existing['recorded_at']}, {existing['status']})")
             for finding in result.get("preflight", {}).get("findings", []):
                 print(f"Review: {finding['path']}: {finding['reason']}")
             layout = result.get("session_configuration_preview")
@@ -63,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
             print("Preserve existing sessions, display manager and user configuration.")
             for source in result.get("recipe_sources", []):
                 print(f"Reference: {source}")
-        return 1
+        # Nothing to do for an intact DesktopForge installation; anything else is blocked.
+        return 0 if result["status"] == "installed" else 1
     if args.command == "detect":
         result = detect_system()
         if args.json:

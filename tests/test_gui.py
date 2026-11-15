@@ -337,3 +337,27 @@ def test_application_has_a_desktopforge_wayland_app_id(app):
     from desktopforge.gui.window import configure_application
     configure_application(app)
     assert app.desktopFileName() == 'dev.desktopforge.DesktopForge'
+
+
+def test_gui_shows_an_intact_desktopforge_installation(app, inventory):
+    from pathlib import Path
+    from desktopforge import install_records
+    from tests.test_install_records import PACKAGES, make_record
+    installed = deepcopy(inventory)
+    summary = install_records.summarize(make_record(), Path('/nonexistent'), PACKAGES)
+    summary['status'] = 'intact'
+    installed['desktopforge_installations'] = {'installations': [summary]}
+    widget = DesktopForgeWindow(detector=lambda: installed, auto_refresh=False)
+    try:
+        scan(widget)
+        assert widget.plan['status'] == 'installed'
+        assert widget.plan_status.text() == 'Installed by DesktopForge'
+        assert 'Niri + Noctalia (DesktopForge)' in widget.plan_summary.text()
+        assert widget.operations.rowCount() == 0 and not widget.install_button.isEnabled()
+    finally:
+        if widget._worker is not None:
+            widget._worker.wait(5000)
+        widget.close()
+        widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()

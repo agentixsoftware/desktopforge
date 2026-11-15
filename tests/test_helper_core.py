@@ -341,11 +341,14 @@ def test_core_uses_only_stdlib_and_relative_imports():
 
 
 def test_gui_and_cli_do_not_use_the_helper():
+    # Only the shared, read-only install-record schema may be imported outside the helper.
     src = HELPER.parent
     for path in [*src.glob('*.py'), *(src / 'gui').glob('*.py')]:
-        assert 'helper' not in {
-            n.module.split('.')[-1] if isinstance(n, ast.ImportFrom) and n.module else ''
-            for n in ast.walk(ast.parse(path.read_text()))}, path
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.split('.')[-1] == 'helper':
+                assert [a.name for a in node.names] == ['records'], path
+            if isinstance(node, ast.ImportFrom) and node.module and 'helper.' in node.module:
+                assert node.module.endswith('helper.records'), path
 
 
 # ---- login-session registration ---------------------------------------------------

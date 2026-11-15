@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 LIBEXEC = '/usr/local/libexec/desktopforge-lab'
 CORE = '/usr/local/lib/desktopforge-lab/python/desktopforge_helper'
 CORE_FILES = ('__init__.py', 'evidence.py', 'executor.py', 'fsops.py', 'grants.py', 'journal.py',
-              'pkgtx.py', 'sessions.py')
+              'pkgtx.py', 'records.py', 'sessions.py')
 
 
 def component_files(prefix, bus_name, action, unit):

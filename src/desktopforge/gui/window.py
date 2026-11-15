@@ -389,8 +389,18 @@ class DesktopForgeWindow(QMainWindow):
             self.plan = plan
             compatibility = {'unverified': 'Unverified target', 'unsupported': 'Outside current recipe scope'}.get(
                 plan['compatibility'], 'Not validated')
-            self.plan_status.setText(compatibility)
-            self.plan_summary.setText(f"{LABELS[compositor]} + {LABELS[shell]} · Session ID preview: {plan['session_id_preview']}")
+            existing = plan.get('existing_installation')
+            if existing and plan['status'] == 'installed':
+                self.plan_status.setText('Installed by DesktopForge')
+                self.plan_summary.setText(
+                    f"{LABELS[compositor]} + {LABELS[shell]} · Login session: {existing['session']['name']} · "
+                    f"installed {existing['recorded_at'][:10]}, files verified")
+            else:
+                if existing:
+                    compatibility = f"DesktopForge install {existing['status']}"
+                self.plan_status.setText(compatibility)
+                self.plan_summary.setText(
+                    f"{LABELS[compositor]} + {LABELS[shell]} · Session ID preview: {plan['session_id_preview']}")
             evidence = plan['component_evidence']
             self.component_evidence.setText(
                 f"{LABELS[compositor]}: {'found on PATH' if evidence['compositor_executable_found'] else 'not found on PATH'}  ·  "

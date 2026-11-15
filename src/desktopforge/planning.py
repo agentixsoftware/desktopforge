@@ -7,6 +7,7 @@ from .preflight import preflight_preview
 from .session_layout import session_layout_preview
 from .operations import PackageProposal, SessionProposal, operation_preview, order_operations
 from .errors import RecipeError
+from .install_records import installation_for
 from .recipes import (COMPOSITORS, DISTRIBUTIONS, SHELLS, Recipe,
                       load_bundled_recipes, resolve_compatibility)
 
@@ -36,11 +37,15 @@ def build_plan(inventory: dict, compositor: str, shell: str,
     occupied = existing | set((evidence or {}).get("occupied_session_ids", []))
     preflight = preflight_preview(evidence)
     base = f"desktopforge-{compositor}-{shell}"
+    installed = installation_for(inventory, compositor, shell)
     session_id = base
     suffix = 2
-    while session_id in occupied:
+    while session_id in occupied and installed is None:
         session_id = f"{base}-{suffix}"
         suffix += 1
+    if installed is not None:
+        # DesktopForge's own installation: recognize it instead of proposing a new ID.
+        session_id = installed["session"]["id"]
     blockers = ["No validated installation recipe is available."]
     blockers.extend(resolution["reasons"])
     blockers.extend(preflight["blockers"])
@@ -74,10 +79,24 @@ def build_plan(inventory: dict, compositor: str, shell: str,
             blockers.append("Package versions, provenance and installed-package reuse have not been validated.")
         if any(isinstance(op, SessionProposal) for op in recipe.operations):
             blockers.append("Session template, launcher integration and filesystem conflicts have not been validated.")
+    status_value = "blocked"
+    if installed is not None:
+        if installed["status"] == "intact":
+            status_value, blockers, operations, session_configuration = "installed", [], [], None
+        else:
+            problems = [f"{f['path']} is {f['status']}" for f in installed["files"] if f["status"] != "intact"]
+            problems += [f"package {p['name']} is {p['status']}" for p in
+                         installed["packages"]["installed"] + installed["packages"]["reused"]
+                         if p["status"] in ("missing", "changed")]
+            blockers.insert(0, f"DesktopForge installation {installed['install_id']} of this combination is "
+                               f"{installed['status']}: " + "; ".join(problems or ["see its install record"])
+                               + ". Repair and removal are not supported yet.")
+            operations, session_configuration = [], None
     return {
         "schema_version": 2,
         "dry_run": True,
-        "status": "blocked",
+        "status": status_value,
+        "existing_installation": installed,
         "target": {"distribution": distro,
                    "version_id": inventory["distribution"]["version_id"],
                    "compositor": compositor, "shell": shell},

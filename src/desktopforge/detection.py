@@ -12,6 +12,7 @@ import shutil
 
 from .packages import inspect_packages
 from .repositories import inspect_repositories
+from .install_records import inspect_installations
 from .preflight import inspect_preflight
 from .session_analysis import SHELL_EXECUTABLES, inspect_processes, session_analysis
 from pathlib import Path
@@ -163,11 +164,13 @@ def detect_system(
         elif home and Path(home).is_absolute():
             config_home = Path(home) / ".config"
     preflight = inspect_preflight(root, config_home)
+    package_inventory = inspect_packages(distro.get("ID"), root,
+        executables={**compositor_evidence, **{f'shell:{k}': v for k, v in shell_evidence.items()},
+                     'session:niri': command_evidence['niri-session']})
     return {
-        "schema_version": 4,
-        "package_inventory": inspect_packages(distro.get("ID"), root,
-            executables={**compositor_evidence, **{f'shell:{k}': v for k, v in shell_evidence.items()},
-                         'session:niri': command_evidence['niri-session']}),
+        "schema_version": 5,
+        "package_inventory": package_inventory,
+        "desktopforge_installations": inspect_installations(root, package_inventory),
         "repository_evidence": inspect_repositories(root, distro.get("ID")),
         "command_evidence": command_evidence,
         "preflight_evidence": preflight,

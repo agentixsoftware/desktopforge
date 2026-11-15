@@ -58,7 +58,9 @@ def _run(operation, targets, allowed_commands, adapters):
         return {'kind': 'packages', 'packages': [
             {'name': r['name'], 'arch': r['arch'], 'evr': r['evr'], 'repo': r['repo'],
              'installtid': next((x['installtid'] for x in records.get(r['name'], [])
-                                 if x['evr'] == r['evr']), None)} for r in operation['expected']]}
+                                 if x['evr'] == r['evr']), None),
+             'key_id': next((x['key_id'] for x in records.get(r['name'], [])
+                             if x['evr'] == r['evr']), None)} for r in operation['expected']]}
     target = operation['target']
     if target not in targets:
         raise OperationFailed('unknown operation target')
