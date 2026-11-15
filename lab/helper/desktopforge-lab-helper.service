@@ -6,8 +6,9 @@ Type=dbus
 BusName=org.desktopforge.LabHelper1
 ExecStart=/usr/bin/python3 -Is /usr/local/libexec/desktopforge-lab/desktopforge-lab-helper
 # Root UID is needed only so Polkit accepts checks for another subject.
-# No capabilities or network; only its StateDirectory and the session
-# directory are writable.
+# No capabilities or network; writable: its state directory, the session
+# directory and /etc/desktopforge. Package transactions run as a separate
+# transient unit started through systemd with a fixed DNF5 command line.
 CapabilityBoundingSet=
 AmbientCapabilities=
 NoNewPrivileges=yes
@@ -34,3 +35,5 @@ UMask=0022
 StateDirectory=desktopforge-lab
 StateDirectoryMode=0755
 ReadWritePaths=/usr/share/wayland-sessions
+ConfigurationDirectory=desktopforge
+ConfigurationDirectoryMode=0755

@@ -1,0 +1,21 @@
+Updating and loading repositories:
+Repositories loaded.
+Package             Arch   Version         Repository      Size
+Installing:
+ niri               x86_64 0:26.04-2.fc45  fedora      22.8 MiB
+ noctalia           x86_64 0:5.5.0-3.fc45  updates     37.6 MiB
+Installing dependencies:
+ jemalloc           x86_64 0:5.3.0-14.fc44 fedora       1.1 MiB
+ libqalculate       x86_64 0:5.11.0-3.fc45 fedora       9.9 MiB
+ libseat            x86_64 0:0.9.3-2.fc45  fedora      51.5 KiB
+ tomlplusplus       x86_64 0:3.4.0-8.fc45  fedora     262.1 KiB
+ xwayland-satellite x86_64 0:0.8.3-1.fc45  updates      4.8 MiB
+
+Transaction Summary:
+ Installing:         7 packages
+
+Total size of inbound packages is 26 MiB. Need to download 26 MiB.
+After this operation, 76 MiB extra will be used (install 76 MiB, remove 0 B).
+Warning: A pending offline transaction initiated by the following command will be invalidated: dnf5daemon-server
+Operation aborted by the user.
+

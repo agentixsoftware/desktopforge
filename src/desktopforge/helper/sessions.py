@@ -7,7 +7,9 @@ SESSION_ID = re.compile(r'desktopforge-[a-z0-9]+(?:-[a-z0-9]+){0,7}')
 FIELDS = ('Name', 'Comment', 'Exec', 'TryExec', 'Type', 'DesktopNames')
 REQUIRED = ('Name', 'Exec', 'Type')
 TEXT = re.compile(r'[^\x00-\x1f\x7f\\]{1,200}')
-COMMAND = re.compile(r'/[A-Za-z0-9._/-]{1,200}')
+PATH = re.compile(r'/[A-Za-z0-9._/-]{1,200}')
+# An absolute program plus up to eight plain arguments: no quotes, %-codes or shell syntax.
+COMMAND = re.compile(r'/[A-Za-z0-9._/-]{1,200}(?: [A-Za-z0-9._/=-]{1,200}){0,8}')
 
 
 class InvalidEntry(Exception):
@@ -29,8 +31,9 @@ def render(entry, allowed_commands):
             raise InvalidEntry(f'{key} contains unsupported characters')
     if entry['Type'] != 'Application':
         raise InvalidEntry('Type must be Application')
-    for key in ('Exec', 'TryExec'):
-        if key in entry and (not COMMAND.fullmatch(entry[key]) or '..' in entry[key]
+    for key, shape in (('Exec', COMMAND), ('TryExec', PATH)):
+        # The allowlist holds exact strings; arguments are part of what was reviewed.
+        if key in entry and (not shape.fullmatch(entry[key]) or '..' in entry[key]
                              or entry[key] not in allowed_commands):
             raise InvalidEntry(f'{key} is not an allowlisted absolute command')
     lines = ['[Desktop Entry]'] + [f'{key}={entry[key]}' for key in FIELDS if key in entry]

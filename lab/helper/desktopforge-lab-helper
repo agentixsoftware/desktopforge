@@ -6,11 +6,16 @@ the system bus and Polkit, inside the disposable VM. Its only possible changes a
 creating marker files in /var/lib/desktopforge-lab/markers and registering
 desktopforge-* login sessions in /usr/share/wayland-sessions. It accepts a recipe
 ID from a fixed built-in list, never recipe content, commands, paths or modes.
+The fedora45-niri-noctalia-lab recipe additionally installs Fedora-signed
+packages from the fedora/updates repositories through a fixed DNF5 command
+and writes a DesktopForge-owned Niri config under /etc/desktopforge/sessions.
 It is not the production helper and does not enable DesktopForge installation.
 """
 import json
 import os
 import re
+import secrets
+import subprocess
 import sys
 
 PROTOCOL_VERSION = 1
@@ -19,7 +24,15 @@ OBJECT_PATH = '/org/desktopforge/LabHelper1'
 INTERFACE = BUS_NAME
 ACTION_ID = 'org.desktopforge.lab.apply-synthetic'
 SESSION_ACTION_ID = 'org.desktopforge.lab.register-session'
-ALLOWED_COMMANDS = frozenset({'/usr/bin/gnome-session'})
+INSTALL_ACTION_ID = 'org.desktopforge.lab.install-session'
+CONFIG_DIR = '/etc/desktopforge'
+SESSION_CONFIG = CONFIG_DIR + '/sessions'
+TEMPLATES = '/usr/local/lib/desktopforge-lab/templates'
+NIRI_CONFIG = SESSION_CONFIG + '/niri-noctalia.kdl'
+NIRI_EXEC = '/usr/bin/niri --session --config ' + NIRI_CONFIG
+FEDORA45_KEY_ID = '655a4b02f577861e'
+ALLOWED_COMMANDS = frozenset({'/usr/bin/gnome-session', '/usr/bin/niri', NIRI_EXEC})
+PACKAGE_TIMEOUT_SECONDS = 900
 CORE_PATH = '/usr/local/lib/desktopforge-lab/python'
 STATE_DIR = '/var/lib/desktopforge-lab'
 SESSIONS_DIR = '/usr/share/wayland-sessions'
@@ -44,8 +57,22 @@ RECIPES = {
             'Comment': 'DesktopForge lab test session; starts the standard GNOME session',
             'Exec': '/usr/bin/gnome-session', 'TryExec': '/usr/bin/gnome-session',
             'Type': 'Application', 'DesktopNames': 'GNOME'}}]},
+    'fedora45-niri-noctalia-lab': {'revision': 1, 'signer': FEDORA45_KEY_ID, 'operations': [
+        {'op': 'install_packages', 'packages': ['niri', 'noctalia'], 'repositories': ['fedora', 'updates']},
+        {'op': 'create_file', 'target': 'session-config', 'name': 'niri-noctalia.kdl', 'mode': 0o644,
+         'template': 'niri-noctalia.kdl'},
+        {'op': 'validate_config', 'kind': 'niri', 'target': 'session-config', 'name': 'niri-noctalia.kdl'},
+        {'op': 'register_session', 'target': 'sessions', 'id': 'desktopforge-niri-noctalia', 'entry': {
+            'Name': 'Niri + Noctalia (DesktopForge)',
+            'Comment': 'Niri compositor with the Noctalia shell, added by DesktopForge',
+            'Exec': NIRI_EXEC, 'TryExec': '/usr/bin/niri',
+            'Type': 'Application', 'DesktopNames': 'niri'}}],
+     'notes': ['Installing the niri package also adds Fedora\'s own "Niri" login session '
+               '(owned by that package; it uses ~/.config/niri, not the DesktopForge config).',
+               'Noctalia creates its own settings in ~/.config/noctalia the first time it starts.',
+               'Mod+T opens Ptyxis, which Fedora Workstation already provides; it is not installed here.']},
 }
-TARGETS = {'markers': TARGET, 'sessions': SESSIONS_DIR}
+TARGETS = {'markers': TARGET, 'sessions': SESSIONS_DIR, 'session-config': SESSION_CONFIG}
 
 INTROSPECTION = f"""<node>
   <interface name="{INTERFACE}">
@@ -67,26 +94,41 @@ class Rejected(Exception):
 
 
 def action_for(recipe_id):
-    """Each sensitive operation class has its own Polkit action."""
+    """Each sensitive operation class has its own Polkit action; the strongest applies."""
     ops = {op['op'] for op in RECIPES[recipe_id]['operations']}
+    if 'install_packages' in ops:
+        return INSTALL_ACTION_ID
     return SESSION_ACTION_ID if 'register_session' in ops else ACTION_ID
 
 
-def build_plan(recipe_id, current, session_names, render, session_filename):
+def build_plan(recipe_id, current, session_names, render, session_filename,
+               resolve=None, templates=None):
     """Plan for a built-in recipe, or blockers. Content comes only from RECIPES.
 
-    current: {'markers': [...], 'sessions': [...]} evidence records.
-    session_names: existing session file -> display Name (None if unreadable).
+    current: evidence records per target. session_names: existing session file ->
+    display Name (None if unreadable). resolve(packages, repos) -> (rows, blockers)
+    and templates: name -> text are supplied by the service.
     """
     if not isinstance(recipe_id, str) or not RECIPE_ID.fullmatch(recipe_id) or recipe_id not in RECIPES:
         raise Rejected('unknown recipe')
     recipe = RECIPES[recipe_id]
-    existing = {target: {r['name'] for r in current[target]} for target in TARGETS}
+    existing = {target: {r['name'] for r in current.get(target, [])} for target in TARGETS}
     taken = {name.casefold() for name in session_names.values() if name}
-    blockers = []
+    blockers, operations = [], []
     for op in recipe['operations']:
-        if op['op'] == 'create_file' and op['name'] in existing[op['target']]:
-            blockers.append(f'{op["name"]} already exists; it will not be overwritten')
+        op = dict(op)
+        if op['op'] == 'install_packages':
+            if resolve is None:
+                raise Rejected('package resolution unavailable')
+            op['expected'], package_blockers = resolve(op['packages'], op['repositories'])
+            blockers += package_blockers
+        elif op['op'] == 'create_file':
+            if 'template' in op:
+                if not templates or op['template'] not in templates:
+                    raise Rejected('recipe template missing')
+                op['content'] = templates[op.pop('template')]
+            if op['name'] in existing[op['target']]:
+                blockers.append(f'{op["name"]} already exists; it will not be overwritten')
         elif op['op'] == 'register_session':
             render(op['entry'], ALLOWED_COMMANDS)  # invalid templates fail at preview
             filename = session_filename(op['id'])
@@ -97,8 +139,11 @@ def build_plan(recipe_id, current, session_names, render, session_filename):
             unknown = sorted(f for f, n in session_names.items() if n is None)
             if unknown:
                 blockers.append('Cannot read the display name of: ' + ', '.join(unknown))
+        operations.append(op)
     plan = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': recipe['revision'],
-            'targets': TARGETS, 'operations': recipe['operations']}
+            'targets': TARGETS, 'operations': operations}
+    if 'signer' in recipe:
+        plan['signer'] = recipe['signer']
     return plan, blockers
 
 
@@ -106,20 +151,78 @@ def summarize(plan):
     """Plain-language list for the client to show before approval."""
     lines = []
     for op in plan['operations']:
-        if op['op'] == 'create_file':
+        if op['op'] == 'install_packages':
+            requested = set(op['packages'])
+            new = {r['name'] for r in op['expected']}
+            lines.append('Install from Fedora repositories (' + ', '.join(op['repositories']) +
+                         f'), signatures required, signer key {plan.get("signer")}, no weak dependencies: ' +
+                         ', '.join(f'{r["name"]} {r["evr"]} [{r["repo"]}]' for r in op['expected']))
+            reused = sorted(requested - new)
+            if reused:
+                lines.append('Already installed and reused unchanged: ' + ', '.join(reused))
+        elif op['op'] == 'create_file':
             lines.append(f'Create new file {plan["targets"][op["target"]]}/{op["name"]} (mode {op["mode"]:04o})')
+        elif op['op'] == 'validate_config':
+            lines.append(f'Check {plan["targets"][op["target"]]}/{op["name"]} with "{op["kind"]} validate"')
         elif op['op'] == 'register_session':
             entry = op['entry']
             lines.append(f'Add login session "{entry["Name"]}" as {plan["targets"]["sessions"]}/'
                          f'{op["id"]}.desktop; it starts {entry["Exec"]}. Existing sessions are not changed.')
         elif op['op'] == 'fail':
             lines.append(f'Injected failure: {op["reason"]}')
+    lines += ['Note: ' + note for note in RECIPES[plan['recipe']].get('notes', [])]
     return lines
+
+
+PACKAGE_LOGS = STATE_DIR + '/package-logs'
+
+
+def run_root(argv):  # pragma: no cover - VM only
+    """Run a fixed package-manager argv as a transient root unit outside this sandbox.
+
+    PID1 resets the connection when a sandboxed caller hands over its stdio
+    (systemd-run --pipe), so the unit writes to a root-only log file instead;
+    the log is kept as a record of the transaction.
+    """
+    unit = 'desktopforge-lab-pkg-' + secrets.token_hex(4)
+    log = f'{PACKAGE_LOGS}/{unit}.log'
+    command = ['/usr/bin/systemd-run', '--wait', '--quiet', '--collect', '--service-type=exec',
+               f'--unit={unit}', '--setenv=LC_ALL=C.UTF-8', '--property=StandardInput=null',
+               f'--property=StandardOutput=truncate:{log}', '--property=StandardError=inherit',
+               f'--property=RuntimeMaxSec={PACKAGE_TIMEOUT_SECONDS}', '--', *argv]
+    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                            timeout=PACKAGE_TIMEOUT_SECONDS + 30)
+    try:
+        fd = os.open(log, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        with os.fdopen(fd, 'rb') as stream:
+            output = stream.read(4 * 1024 * 1024).decode('utf-8', 'replace')
+    except OSError:
+        output = result.stderr  # the unit never started; systemd-run explains why
+    return result.returncode, output
+
+
+def run_query(argv):  # pragma: no cover - VM only
+    """Read-only rpm queries run inside the sandbox; stdout only."""
+    result = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60,
+                            env={'LC_ALL': 'C.UTF-8', 'PATH': '/usr/bin'})
+    return result.returncode, result.stdout
+
+
+def runner(argv):  # pragma: no cover - VM only
+    return run_query(argv) if argv[0] == '/usr/bin/rpm' else run_root(argv)
+
+
+def validate_niri(_dir_fd, name):  # pragma: no cover - VM only
+    path = f'{SESSION_CONFIG}/{name}'
+    result = subprocess.run(['/usr/bin/niri', 'validate', '--config', path], stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=60,
+                            env={'LC_ALL': 'C.UTF-8', 'PATH': '/usr/bin', 'NO_COLOR': '1'})
+    return result.returncode == 0, result.stdout[-300:]
 
 
 def run_service():  # pragma: no cover - exercised in the disposable VM
     sys.path.insert(0, CORE_PATH)
-    from desktopforge_helper import evidence, executor, fsops, sessions
+    from desktopforge_helper import evidence, executor, fsops, pkgtx, sessions
     from desktopforge_helper.grants import Caller, GrantRejected, GrantStore
     from desktopforge_helper.journal import Journal, JournalError
     from gi.repository import Gio, GLib
@@ -132,6 +235,12 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
     state_fd = fsops.open_anchor(STATE_DIR, expected_uid=0)
     markers_fd = fsops.open_child(state_fd, 'markers', expected_uid=0, create_mode=0o755)
     journal_fd = fsops.open_child(state_fd, 'journal', expected_uid=0, create_mode=0o700)
+    os.close(fsops.open_child(state_fd, 'package-logs', expected_uid=0, create_mode=0o700))
+    config_fd = fsops.open_anchor(CONFIG_DIR, expected_uid=0)
+    session_config_fd = fsops.open_child(config_fd, 'sessions', expected_uid=0, create_mode=0o755)
+    templates_fd = fsops.open_anchor(TEMPLATES, expected_uid=0)
+    templates = {name: fsops.read_small(templates_fd, name).decode() for name in ('niri-noctalia.kdl',)}
+    adapters = executor.Adapters(runner, FEDORA45_KEY_ID, {'niri': validate_niri})
 
     def log(message):
         print(message, flush=True)
@@ -168,12 +277,14 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
     def inspect(sessions_fd):
         """Fresh evidence and plan inputs, read through the given session-dir handle."""
         current = {'sessions': evidence.directory_evidence(sessions_fd),
-                   'markers': evidence.directory_evidence(markers_fd)}
+                   'markers': evidence.directory_evidence(markers_fd),
+                   'session-config': evidence.directory_evidence(session_config_fd)}
         return current, sessions.display_names(sessions_fd, current['sessions'])
 
     def plan_for(recipe_id, sessions_fd):
         current, names = inspect(sessions_fd)
-        plan, blockers = build_plan(recipe_id, current, names, sessions.render, sessions.session_filename)
+        plan, blockers = build_plan(recipe_id, current, names, sessions.render, sessions.session_filename,
+                                    resolve=lambda p, r: pkgtx.resolve(p, r, runner), templates=templates)
         return current, plan, blockers
 
     def watch_sender(sender):
@@ -211,7 +322,8 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                 current, plan, blockers = plan_for(recipe_id, sessions_fd)
             finally:
                 os.close(sessions_fd)
-        except (Rejected, fsops.UnsafePath, sessions.InvalidEntry, OSError) as exc:
+        except (Rejected, fsops.UnsafePath, sessions.InvalidEntry, pkgtx.PackageError,
+                subprocess.SubprocessError, OSError) as exc:
             reject(invocation, caller.sender, str(exc))
             return
         record = {'protocol': PROTOCOL_VERSION, 'recipe': recipe_id, 'revision': plan['revision'],
@@ -289,7 +401,8 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
         def apply_checked(sessions_fd):
             try:
                 current, plan, blockers = plan_for(grant.recipe_id, sessions_fd)
-            except (Rejected, fsops.UnsafePath, sessions.InvalidEntry, OSError) as exc:
+            except (Rejected, fsops.UnsafePath, sessions.InvalidEntry, pkgtx.PackageError,
+                    subprocess.SubprocessError, OSError) as exc:
                 finish({'outcome': 'rejected', 'detail': f'preflight failed: {exc}', 'changes_made': False})
                 return
             if evidence.fingerprint(current) != grant.fingerprint or blockers \
@@ -306,14 +419,17 @@ def run_service():  # pragma: no cover - exercised in the disposable VM
                 journal.record('approved', uid=caller.uid, sender=caller.sender, action=action,
                                recipe=grant.recipe_id, plan_hash=grant.plan_hash)
                 journal.record('preflight_passed', fingerprint=grant.fingerprint)
-                result = executor.execute(plan, journal, {'markers': markers_fd, 'sessions': sessions_fd},
-                                          ALLOWED_COMMANDS)
+                result = executor.execute(plan, journal, {'markers': markers_fd, 'sessions': sessions_fd,
+                                                          'session-config': session_config_fd},
+                                          ALLOWED_COMMANDS, adapters)
             except JournalError as exc:
                 result = {'state': 'failed_recoverable', 'created': [], 'error': str(exc)}
             finally:
                 journal.close()
             finish({'outcome': result['state'], 'install_id': journal.install_id,
-                    'created': [f'{TARGETS[c["target"]]}/{c["name"]}' for c in result['created']],
+                    'created': [f'{TARGETS[c["target"]]}/{c["name"]}' if c.get('kind') != 'packages'
+                                else 'packages: ' + ' '.join(f'{p["name"]}-{p["evr"]}' for p in c['packages'])
+                                for c in result['created']],
                     'recovery': result.get('recovery') or '', 'error': result.get('error', ''),
                     'rolled_back': False, 'changes_made': bool(result['created'])})
 

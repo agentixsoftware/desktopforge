@@ -54,9 +54,9 @@ def main():
         time.sleep(args.pause)
     plan_hash = ('0' * 64) if args.tamper_plan else preview['plan_hash']
     applier = private_connection() if args.other_connection else bus
-    emit('apply', call(applier, 'Apply', (preview['token'], plan_hash), '(ss)', timeout_ms=300000))
+    emit('apply', call(applier, 'Apply', (preview['token'], plan_hash), '(ss)', timeout_ms=1200000))
     if args.replay:
-        emit('replay', call(applier, 'Apply', (preview['token'], plan_hash), '(ss)', timeout_ms=300000))
+        emit('replay', call(applier, 'Apply', (preview['token'], plan_hash), '(ss)', timeout_ms=1200000))
     return 0
 
 
