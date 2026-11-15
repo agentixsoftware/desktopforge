@@ -19,7 +19,7 @@ Alternative without installation: `PYTHONPATH=src python3 -m desktopforge detect
 
 ## Current scope
 
-The detector reads os-release, session .desktop files, a display-manager systemd symlink, selected environment variables, and executable availability on PATH. The results are best-effort observations; they are not proof that a compositor or shell will work. The catalog and deterministic blocked plan preview are available through `list` and `plan` (see README). Typed recipes, version constraints and concrete operations remain pending.
+The detector reads os-release, session .desktop files, a display-manager systemd symlink, selected environment variables, and executable availability on PATH. The results are best-effort observations; they are not proof that a compositor or shell will work. The catalog and deterministic blocked plan preview are available through `list` and `plan` (see README). Typed metadata and exact distro/version/display-manager constraints are implemented (see RECIPES.md). Concrete operations, component-version checks and validation provenance remain pending.
 
 ## Security model
 

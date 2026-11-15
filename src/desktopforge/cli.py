@@ -7,6 +7,7 @@ import json
 import sys
 
 from .detection import detect_system
+from .recipes import RecipeError
 from .planning import COMPOSITORS, SHELLS, build_plan, compatibility_catalog
 
 
@@ -31,7 +32,11 @@ def main(argv: list[str] | None = None) -> int:
                 print("{distribution}: {compositor} + {shell} ({status})".format(**entry))
         return 0
     if args.command == "plan":
-        result = build_plan(detect_system(), args.compositor, args.shell)
+        try:
+            result = build_plan(detect_system(), args.compositor, args.shell)
+        except RecipeError as exc:
+            print(f"Recipe validation failed: {exc}", file=sys.stderr)
+            return 2
         if args.json:
             print(json.dumps(result, indent=2, sort_keys=True))
         else:

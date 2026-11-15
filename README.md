@@ -50,3 +50,9 @@ PYTHONPATH=src python3 -m desktopforge plan --compositor niri --shell ryoku
 ```
 
 Both commands accept `--json`. The catalog describes target scope, including experimental Ryoku combinations; all entries are unverified for every version. Plans are deterministic for identical inventory inputs, preserve existing sessions and configuration, and contain no executable operations. A blocked plan exits with status 1; successful inventory/catalog commands exit with status 0. Session IDs are previews, not filesystem reservations.
+
+Recipe metadata now uses strict typed constraints for distribution ID, exact release
+versions and configured display manager. The Fedora 45 + Niri + Ryoku + SDDM
+reference has bundled **unverified metadata only**. Other versions are outside
+that metadata's constraints; this does not establish upstream incompatibility.
+See [recipe schema](docs/RECIPES.md) for the supported format and limitations.

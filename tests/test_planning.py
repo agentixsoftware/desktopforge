@@ -20,6 +20,7 @@ def test_catalog_never_claims_verified_support():
 def test_plan_is_deterministic_blocked_and_preserves_sessions(tmp_path):
     data = inventory(tmp_path)
     data['distribution'].update(id='fedora', version_id='45')
+    data['display_manager']['name'] = 'sddm'
     data['sessions']['wayland'] = [
         {'id': 'desktopforge-niri-ryoku'}, {'id': 'desktopforge-niri-ryoku-2'}]
     before = json.dumps(data, sort_keys=True)
@@ -45,3 +46,17 @@ def test_cli_list_and_blocked_plan_json(tmp_path, monkeypatch, capsys):
     assert len(json.loads(capsys.readouterr().out)) == 18
     assert main(['plan', '--compositor', 'niri', '--shell', 'ryoku', '--json']) == 1
     assert json.loads(capsys.readouterr().out)['operations'] == []
+
+
+def test_cli_recipe_validation_failure_is_actionable(monkeypatch, capsys):
+    from desktopforge.recipes import RecipeError
+
+    def invalid(*args):
+        raise RecipeError('Unsupported recipe schema_version')
+
+    monkeypatch.setattr('desktopforge.cli.detect_system', lambda: {})
+    monkeypatch.setattr('desktopforge.cli.build_plan', invalid)
+    assert main(['plan', '--compositor', 'niri', '--shell', 'ryoku']) == 2
+    output = capsys.readouterr()
+    assert output.out == ''
+    assert 'Recipe validation failed' in output.err

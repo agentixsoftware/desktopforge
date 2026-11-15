@@ -1,9 +1,8 @@
 """Conservative catalog and deterministic previews; no executable operations."""
 from __future__ import annotations
 
-DISTRIBUTIONS = ("fedora", "arch", "cachyos")
-COMPOSITORS = ("niri", "hyprland")
-SHELLS = ("noctalia", "dms", "ryoku")
+from .recipes import (COMPOSITORS, DISTRIBUTIONS, SHELLS, Recipe,
+                      load_bundled_recipes, resolve_compatibility)
 
 
 def compatibility_catalog() -> list[dict[str, str]]:
@@ -15,12 +14,15 @@ def compatibility_catalog() -> list[dict[str, str]]:
     ]
 
 
-def build_plan(inventory: dict, compositor: str, shell: str) -> dict:
+def build_plan(inventory: dict, compositor: str, shell: str,
+               recipes: tuple[Recipe, ...] | None = None) -> dict:
     """Build a stable preview from supplied evidence without performing changes."""
     if compositor not in COMPOSITORS or shell not in SHELLS:
         raise ValueError("Unknown compositor or shell")
     distro = inventory["distribution"]["id"]
-    status = "unverified" if distro in DISTRIBUTIONS else "unsupported"
+    resolution = resolve_compatibility(inventory, compositor, shell,
+                                       load_bundled_recipes() if recipes is None else recipes)
+    status = resolution["status"]
     existing = {entry["id"] for group in inventory["sessions"].values() for entry in group}
     base = f"desktopforge-{compositor}-{shell}"
     session_id = base
@@ -29,8 +31,7 @@ def build_plan(inventory: dict, compositor: str, shell: str) -> dict:
         session_id = f"{base}-{suffix}"
         suffix += 1
     blockers = ["No validated installation recipe is available."]
-    if status == "unsupported":
-        blockers.insert(0, "Distribution is outside the initial target catalog.")
+    blockers.extend(resolution["reasons"])
     return {
         "schema_version": 1,
         "dry_run": True,
@@ -39,6 +40,7 @@ def build_plan(inventory: dict, compositor: str, shell: str) -> dict:
                    "version_id": inventory["distribution"]["version_id"],
                    "compositor": compositor, "shell": shell},
         "compatibility": status,
+        "compatibility_resolution": resolution,
         "blockers": blockers,
         "session_id_preview": session_id,
         "component_evidence": {

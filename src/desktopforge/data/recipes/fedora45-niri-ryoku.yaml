@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "fedora45-niri-ryoku",
+  "revision": 1,
+  "status": "unverified",
+  "constraints": {
+    "distribution": "fedora",
+    "versions": ["45"],
+    "compositor": "niri",
+    "shell": "ryoku",
+    "display_managers": ["sddm"]
+  }
+}
