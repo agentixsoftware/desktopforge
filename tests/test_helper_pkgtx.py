@@ -262,3 +262,9 @@ def test_failure_before_transaction_still_reports_no_changes(dirs):
                               adapters=executor.Adapters(fake, KEY))
     assert result['state'] == 'failed_recoverable' and result['recovery'] == 'No changes were made.'
     assert not any('--assumeyes' in c for c in fake.calls)
+
+
+def test_missing_packages_are_reported_once():
+    fake = FakeSystem()
+    _records, problems = pkgtx.verify_installed(EXPECTED, fake, KEY)
+    assert len(problems) == len(EXPECTED) and all(p.endswith('is not installed') for p in problems)

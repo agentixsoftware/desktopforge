@@ -243,6 +243,23 @@ both gave `intact` again.
 GDM kept remembering the Niri session across reboots (expected; it renders on
 this GPU).
 
+## Failed install and retry (network outage, 2026-11-15)
+
+The outage was simulated inside the guest with an nftables table dropping new
+outbound connections. QEMU `set_link` was unsuitable: user-mode networking also
+carries the host's SSH forward.
+
+| Step | Result |
+| --- | --- |
+| Removal of the previous install | RPM set back to baseline; no cached packages |
+| Preview during outage | Resolved from cached repository metadata; ready |
+| Apply (approved in the dialog) | DNF exited 1 after ~10 min of mirror retries. rpm verification confirmed none of the 7 packages present, so `failed_recoverable` with "No changes were made" (verified). Journal ended at `operation_failed > failed_recoverable`; no install record; no files |
+| Retry after the outage | `completed`; new install record; plan `installed`, `intact` |
+
+Follow-ups: package transactions need a user-visible timeout and progress
+(the dialog closed and nothing moved for ~10 minutes). The error listed each
+missing package twice; fixed.
+
 ## Not yet covered
 
 The helper has not yet been tested for caller disconnect during an apply

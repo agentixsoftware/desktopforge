@@ -152,6 +152,8 @@ def verify_installed(expected, runner, signer):
     records, missing = query_installed(sorted({r['name'] for r in expected}), runner)
     problems = [f'{name} is not installed' for name in missing]
     for row in expected:
+        if row['name'] in missing:
+            continue  # already reported as not installed
         found = [r for r in records.get(row['name'], []) if r['arch'] == row['arch']]
         if not any(r['evr'] == row['evr'] for r in found):
             problems.append(f'{row["name"]} is not installed at {row["evr"]}')
